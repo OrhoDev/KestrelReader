@@ -1,41 +1,29 @@
 ﻿# KestrelReader
 
-**Live app:** [https://kestrel-reader.vercel.app/](https://kestrel-reader.vercel.app/)
+KestrelReader is a local-first Rapid Serial Visual Presentation reader designed to make reading digital files easier and less distracting. It serves words to a fixed point on your screen sequentially, allowing you to read without the fatigue of moving your eyes across a page. This project is built primarily as a focused, personal utility for readers who need a quiet environment to process text.
 
-KestrelReader is a local-first Rapid Serial Visual Presentation reader designed to make reading digital files easier and less distracting. It serves words to a fixed point on your screen sequentially, so you can read without moving your eyes across the page. The web app works in the browser (installable as a PWA from that URL). A Chrome extension build is published on [GitHub Releases](https://github.com/OrhoDev/KestrelReader/releases).
+If you want to use KestrelReader without building it from the source code, the live web application is hosted at [kestrel-reader.vercel.app](https://kestrel-reader.vercel.app/). You can also find compiled browser extension zip files on our Releases page.
 
-## Idea
+## Core Philosophy
 
-KestrelReader is built on the idea that reading software should be a quiet utility rather than a noisy service. It does not require you to create an account, does not track your reading habits, and does not send your documents to external servers. All text processing, including PDF and EPUB parsing, happens entirely on your device.
+KestrelReader is built on the idea that reading software should be a quiet utility rather than a noisy service. It does not require you to create an account, does not track your reading habits, and does not send your documents to external servers. All text processing, including PDF and EPUB parsing, happens entirely on your local machine.
 
-The reader adjusts playback speed based on punctuation and word length. When paused, a side-by-side context panel shows surrounding text so you can recover your place quickly.
+## Using the Application
 
-## Use 
+To use KestrelReader directly in your browser, simply visit the live web application. If you prefer to install it on your device, use your browser's native install option to add the PWA to your home screen or desktop.
 
-| Platform | How |
-|----------|-----|
-| **Web / PWA** | Open [https://kestrel-reader.vercel.app/](https://kestrel-reader.vercel.app/). Use your browser’s install option to add it to your home screen or desktop. |
-| **Chrome extension** | On [Releases](https://github.com/OrhoDev/KestrelReader/releases), download `kestrel-extension-v*.zip`, unzip it, then in Chrome go to `chrome://extensions` → Developer mode → **Load unpacked** → select the unzipped folder. |
-| **Desktop (Tauri)** | Not published on Releases yet. Build from source (see below); requires Rust. |
+To use the browser extension, download the compiled zip file from the Releases page on GitHub and unpack it on your computer. Open your browser's extension management page, enable developer mode, select the option to load an unpacked extension, and choose the unzipped folder.
 
-## Get started (development)
+## Getting Started with Development
 
-You need **Node.js** (20+ recommended). **Rust** is only required if you want to build the Tauri desktop app.
+To set up KestrelReader locally from this source code, you will need Node.js installed on your computer. Rust is only required if you want to compile and build the native desktop application.
 
-Clone the repository, then from the project root:
+Start by cloning this repository to your machine. Once cloned, navigate into the project directory and run `npm install`
+From there, run `npm run dev`. 
 
-```bash
-npm install
-npm run dev          
-npm run check        
-npm run build        
-npm run build:web    
-npm run build:extension   
-```
+To compile the browser extension, run `npm run build:extension`. You can load this `dist-extension` folder directly into your browser via developer mode.
 
-**Desktop (optional):** with Rust installed, run `npx tauri build` from the project root (uses `src-tauri/` and outputs installers under `src-tauri/target/release/bundle/`).
-
-**Extension locally:** after `npm run build:extension`, load the `dist-extension/` folder via **Load unpacked** on `chrome://extensions`.
+To compile the native desktop application, ensure you have Rust installed and run `npx tauri build` from the project root.
 
 ## License
 
