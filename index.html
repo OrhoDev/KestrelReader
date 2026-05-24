@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en" data-theme="falcon">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KestrelReader — Local-first RSVP speed reader</title>
+    <meta
+      name="description"
+      content="KestrelReader is a privacy-respecting RSVP speed reader for EPUB, PDF, and text. Read faster on your device with no accounts or cloud uploads."
+    />
+    <meta name="robots" content="index, follow" />
+    <meta name="author" content="KestrelReader" />
+    <meta name="application-name" content="KestrelReader" />
+    <meta name="theme-color" content="#1E1916" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <link rel="canonical" href="https://kestrel-reader.vercel.app/" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/icons/icon192.png" />
+    <link rel="manifest" href="/manifest.json" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="KestrelReader" />
+    <meta property="og:title" content="KestrelReader — Local-first RSVP speed reader" />
+    <meta
+      property="og:description"
+      content="Privacy-respecting RSVP speed reader for EPUB, PDF, and text. All processing stays on your device."
+    />
+    <meta property="og:url" content="https://kestrel-reader.vercel.app/" />
+    <meta property="og:image" content="https://kestrel-reader.vercel.app/icons/icon512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="KestrelReader — Local-first RSVP speed reader" />
+    <meta
+      name="twitter:description"
+      content="Privacy-respecting RSVP speed reader for EPUB, PDF, and text. All processing stays on your device."
+    />
+    <meta name="twitter:image" content="https://kestrel-reader.vercel.app/icons/icon512.png" />
+
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Kestrel" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "KestrelReader",
+        "url": "https://kestrel-reader.vercel.app/",
+        "description": "Local-first RSVP speed reader for EPUB, PDF, and plain text.",
+        "applicationCategory": "UtilitiesApplication",
+        "operatingSystem": "Web",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
