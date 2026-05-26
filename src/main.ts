@@ -14,14 +14,14 @@ const isWebPwa =
 
 if (isWebPwa && typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    // Check if the current host environment is a local loopback
+
     const isLocalhost = Boolean(
       window.location.hostname === 'localhost' ||
       window.location.hostname === '[::1]' ||
       window.location.hostname.match(/^127(?:\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}$/)
     );
 
-    // Bypass registration on localhost to prevent caching conflicts with other dev projects
+
     if (!isLocalhost) {
       navigator.serviceWorker.register('/sw.js', { scope: '/' })
         .then((reg) => {
