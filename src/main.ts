@@ -12,28 +12,21 @@ const isWebPwa =
   !('__TAURI_INTERNALS__' in window) &&
   !('__TAURI__' in window);
 
-if (isWebPwa && typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
+if (isWebPwa && 'serviceWorker' in navigator) {
+  const isLocalhost =
+    window.location.hostname === 'localhost' ||
+    window.location.hostname === '[::1]' ||
+    /^127(?:\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)){3}$/.test(window.location.hostname);
 
-    const isLocalhost = Boolean(
-      window.location.hostname === 'localhost' ||
-      window.location.hostname === '[::1]' ||
-      window.location.hostname.match(/^127(?:\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}$/)
-    );
-
-
-    if (!isLocalhost) {
-      navigator.serviceWorker.register('/sw.js', { scope: '/' })
-        .then((reg) => {
-          console.log('Kestrel Service Worker registered safely:', reg.scope);
-        })
-        .catch((error) => {
-          console.warn('[KestrelReader] Service worker registration failed:', error);
-        });
-    } else {
-      console.log('Kestrel Service Worker bypassed on localhost to prevent port hijacking.');
-    }
-  });
+  if (isLocalhost) {
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      regs.forEach((reg) => reg.unregister());
+    });
+  } else {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch((error) => {
+      console.warn('[KestrelReader] Service worker registration failed:', error);
+    });
+  }
 }
 
 const app = mount(App, {

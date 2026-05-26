@@ -1,4 +1,5 @@
-const CACHE_NAME = 'kestrel-reader-v5';
+const CACHE_NAME = 'kestrel-reader-v6';
+const PRODUCTION_HOST = 'kestrel-reader.vercel.app';
 
 const PRECACHE_URLS = [
   '/index.html',
@@ -11,6 +12,11 @@ const PRECACHE_URLS = [
 ];
 
 self.addEventListener('install', (event) => {
+  if (self.location.hostname !== PRODUCTION_HOST) {
+    self.skipWaiting();
+    return;
+  }
+
   event.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
@@ -27,6 +33,17 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
+  if (self.location.hostname !== PRODUCTION_HOST) {
+    event.waitUntil(
+      (async () => {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+        await self.registration.unregister();
+      })(),
+    );
+    return;
+  }
+
   event.waitUntil(
     (async () => {
       const keys = await caches.keys();
