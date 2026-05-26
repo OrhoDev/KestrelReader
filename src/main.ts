@@ -26,6 +26,14 @@ if (isWebPwa && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch((error) => {
       console.warn('[KestrelReader] Service worker registration failed:', error);
     });
+
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        refreshing = true;
+        window.location.reload();
+      }
+    });
   }
 }
 

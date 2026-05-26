@@ -1,7 +1,8 @@
-const CACHE_NAME = 'kestrel-reader-v6';
+const CACHE_NAME = 'kestrel-reader';
 const PRODUCTION_HOST = 'kestrel-reader.vercel.app';
 
-const PRECACHE_URLS = [
+const SHELL_URLS = [
+  '/',
   '/index.html',
   '/manifest.json',
   '/favicon.png',
@@ -21,7 +22,7 @@ self.addEventListener('install', (event) => {
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       await Promise.all(
-        PRECACHE_URLS.map(async (url) => {
+        SHELL_URLS.map(async (url) => {
           try {
             await cache.add(url);
           } catch {}
@@ -48,26 +49,12 @@ self.addEventListener('activate', (event) => {
     (async () => {
       const keys = await caches.keys();
       await Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)),
+        keys.filter((key) => !key.startsWith('kestrel-reader')).map((key) => caches.delete(key)),
       );
       await self.clients.claim();
     })(),
   );
 });
-
-function isStaticAsset(pathname) {
-  return (
-    pathname.startsWith('/assets/') ||
-    pathname.endsWith('.js') ||
-    pathname.endsWith('.css') ||
-    pathname.endsWith('.mjs') ||
-    pathname.endsWith('.woff') ||
-    pathname.endsWith('.woff2') ||
-    pathname.endsWith('.png') ||
-    pathname.endsWith('.ico') ||
-    pathname.endsWith('.json')
-  );
-}
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
@@ -95,21 +82,46 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (!isStaticAsset(url.pathname)) return;
-
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-
-      return fetch(request)
-        .then((response) => {
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((response) => {
           if (response.ok) {
             const copy = response.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
           }
           return response;
-        })
-        .catch(() => cached ?? Response.error());
-    }),
+        });
+      }),
+    );
+    return;
+  }
+
+  const isStatic =
+    url.pathname.endsWith('.css') ||
+    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.mjs') ||
+    url.pathname.endsWith('.woff') ||
+    url.pathname.endsWith('.woff2') ||
+    url.pathname.endsWith('.png') ||
+    url.pathname.endsWith('.ico') ||
+    url.pathname.endsWith('.json');
+
+  if (!isStatic) return;
+
+  event.respondWith(
+    fetch(request)
+      .then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      })
+      .catch(async () => {
+        const cached = await caches.match(request);
+        return cached ?? Response.error();
+      }),
   );
 });
