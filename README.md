@@ -25,6 +25,10 @@ To compile the browser extension, run `npm run build:extension`. You can load th
 
 To compile the native desktop application, ensure you have Rust installed and run `npx tauri build` from the project root.
 
+## Privacy
+
+KestrelReader collects no personal data. All document parsing and storage happens on your device. See [PRIVACY.md](PRIVACY.md) for the full privacy policy.
+
 ## License
 
 This project is licensed under the MIT License. You are free to use, modify, and distribute the code as you see fit.
