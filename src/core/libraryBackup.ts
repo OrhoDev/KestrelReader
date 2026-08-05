@@ -1,4 +1,4 @@
-import { db, saveBookRecord, type BookRecord } from './db';
+import { db, listBooks, loadBook, saveBookRecord, slimTokens, type BookRecord } from './db';
 import { reportRuntimeError } from './diagnostics';
 
 const BACKUP_VERSION = 1;
@@ -11,17 +11,25 @@ export interface LibraryBackup {
 }
 
 export async function exportLibraryBackup(): Promise<void> {
-  const books = await db.books.toArray();
+  const metas = await listBooks();
+  const books: BookRecord[] = [];
+
+  for (const meta of metas) {
+    const book = await loadBook(meta.id);
+    if (!book) continue;
+    books.push({
+      ...book,
+      rawContent: null,
+      localPath: undefined,
+    });
+  }
+
   const settings = await db.settings.toArray();
 
   const payload: LibraryBackup = {
     version: BACKUP_VERSION,
     exportedAt: Date.now(),
-    books: books.map((book) => ({
-      ...book,
-      rawContent: null,
-      localPath: undefined,
-    })),
+    books,
     settings,
   };
 
@@ -48,6 +56,7 @@ export async function importLibraryBackup(file: File): Promise<number> {
       if (!book.id || !book.tokens?.length) continue;
       const record: BookRecord = {
         ...book,
+        tokens: slimTokens(book.tokens),
         rawContent: null,
         localPath: undefined,
         lastReadAt: book.lastReadAt ?? Date.now(),

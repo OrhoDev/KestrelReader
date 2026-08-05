@@ -1,6 +1,11 @@
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
+
+const projectRoot = dirname(fileURLToPath(import.meta.url));
+const fetchArticleUrl = pathToFileURL(resolve(projectRoot, 'lib/fetchArticle.mjs')).href;
 
 function articleApiPlugin(): Plugin {
   return {
@@ -23,7 +28,7 @@ function articleApiPlugin(): Plugin {
         const target = requestUrl.searchParams.get('url') ?? '';
 
         try {
-          const { fetchArticleFromUrl } = await import('../lib/fetchArticle.mjs');
+          const { fetchArticleFromUrl } = await import(fetchArticleUrl);
           const article = await fetchArticleFromUrl(target);
           res.statusCode = 200;
           res.setHeader('Content-Type', 'application/json');
@@ -46,6 +51,9 @@ export default defineConfig({
     tailwindcss(),
     articleApiPlugin(),
   ],
+  server: {
+    strictPort: true,
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: true,

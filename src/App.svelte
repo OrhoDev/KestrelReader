@@ -65,13 +65,10 @@
     chrome.runtime.sendMessage({ type: 'EXTRACT_TEXT' }, async (response) => {
       try {
         if (response?.text && response.text.trim().length > 40) {
-          const settings = await db.settings.get('baseWpm');
-          const wpm = settings ? settings.value : 300;
           const book = await createBookFromText(response.text, {
             title: response.title?.trim() || 'Web article',
             author: response.author?.trim() || 'Web page',
             format: 'url',
-            wpm,
           });
           extensionSavedBookId = book.id;
           extensionSavedTitle = book.title;

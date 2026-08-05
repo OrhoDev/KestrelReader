@@ -32,12 +32,12 @@ async function resolveChapterTitle(book: ReturnType<typeof ePub>, index: number,
   return `Chapter ${index + 1}`;
 }
 
-export async function parseEpub(file: File | Blob, baseWpm: number): Promise<Token[]> {
-  const result = await parseEpubWithMeta(file, baseWpm);
+export async function parseEpub(file: File | Blob): Promise<Token[]> {
+  const result = await parseEpubWithMeta(file);
   return result.tokens;
 }
 
-export async function parseEpubWithMeta(file: File | Blob, baseWpm: number): Promise<EpubParseResult> {
+export async function parseEpubWithMeta(file: File | Blob): Promise<EpubParseResult> {
   const arrayBuffer = await file.arrayBuffer();
   const book = ePub(arrayBuffer);
 
@@ -64,7 +64,7 @@ export async function parseEpubWithMeta(file: File | Blob, baseWpm: number): Pro
       const chapterTitle = await resolveChapterTitle(book, i, item.href);
       chapters.push({ title: chapterTitle, startOffset: allTokens.length });
 
-      const sectionTokens = parsePlainText(sectionText, baseWpm);
+      const sectionTokens = parsePlainText(sectionText);
       allTokens.push(...sectionTokens);
     } finally {
       item.unload();

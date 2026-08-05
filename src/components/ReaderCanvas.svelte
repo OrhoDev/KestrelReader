@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { db } from '../core/db';
+  import { db, loadBook, type BookMeta } from '../core/db';
   import type { BookRecord, BookPin } from '../core/db';
   import {
     buildPlaybackTokens,
@@ -22,6 +22,7 @@
   import ContextPanel from './ContextPanel.svelte';
   import ShortcutsHelp from './ShortcutsHelp.svelte';
   import ReaderPins from './ReaderPins.svelte';
+  import '../assets/fonts/fonts-reader.css';
 
   let { bookId, focusConfig, onBack } = $props<{
     bookId: string;
@@ -45,8 +46,25 @@
   );
 
   let currentToken = $derived(playbackTokens[playbackOffset] as PlaybackToken | undefined);
-  let activeRawOffset = $derived(rawOffset);
   let controlsVisible = $derived(!isPlaying);
+
+  let isCompact = $state(false);
+  let contextExpanded = $state(false);
+  let wasCompact = false;
+
+  $effect(() => {
+    const mq = window.matchMedia('(max-width: 768px)');
+    const isExtension = window.location.protocol === 'chrome-extension:';
+    const sync = () => {
+      const nowCompact = mq.matches || isExtension;
+      if (nowCompact && !wasCompact) contextExpanded = false;
+      wasCompact = nowCompact;
+      isCompact = nowCompact;
+    };
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  });
 
   type DisplayToken = { text: string; globalIndex: number; paragraphIndex?: number };
   let contextTokens = $state<DisplayToken[]>([]);
@@ -56,8 +74,8 @@
   const PEEK_RADIUS = 12;
 
   let peekTokens = $derived.by(() => {
-    if (!book || book.tokens.length === 0) return [];
-    const offset = Math.max(0, Math.min(activeRawOffset, book.tokens.length - 1));
+    if (!controlsVisible || isPlaying || !book || book.tokens.length === 0) return [];
+    const offset = Math.max(0, Math.min(rawOffset, book.tokens.length - 1));
     const start = Math.max(0, offset - PEEK_RADIUS);
     const end = Math.min(book.tokens.length - 1, offset + PEEK_RADIUS);
     return buildContextSlice(start, end);
@@ -65,7 +83,7 @@
 
   let bookPins = $derived(book?.pins ?? []);
 
-  const CONTEXT_RADIUS = 150;
+  let contextRadius = $derived(isCompact ? 60 : 100);
 
   function buildContextSlice(startIdx: number, endIdx: number): DisplayToken[] {
     if (!book) return [];
@@ -91,7 +109,7 @@
       return;
     }
 
-    const offset = Math.max(0, Math.min(activeRawOffset, book.tokens.length - 1));
+    const offset = Math.max(0, Math.min(rawOffset, book.tokens.length - 1));
     if (offset >= contextWindowStart && offset <= contextWindowEnd) return;
 
     const token = book.tokens[offset];
@@ -103,7 +121,7 @@
       startIdx = offset;
       while (
         startIdx > 0 &&
-        offset - startIdx <= CONTEXT_RADIUS &&
+        offset - startIdx <= contextRadius &&
         book.tokens[startIdx - 1].paragraphIndex !== undefined &&
         book.tokens[startIdx - 1].paragraphIndex! >= pIdx - 1
       ) {
@@ -112,15 +130,15 @@
       endIdx = offset;
       while (
         endIdx < book.tokens.length - 1 &&
-        endIdx - offset <= CONTEXT_RADIUS &&
+        endIdx - offset <= contextRadius &&
         book.tokens[endIdx + 1].paragraphIndex !== undefined &&
         book.tokens[endIdx + 1].paragraphIndex! <= pIdx + 1
       ) {
         endIdx++;
       }
     } else {
-      startIdx = Math.max(0, offset - CONTEXT_RADIUS);
-      endIdx = Math.min(book.tokens.length - 1, offset + CONTEXT_RADIUS);
+      startIdx = Math.max(0, offset - contextRadius);
+      endIdx = Math.min(book.tokens.length - 1, offset + contextRadius);
     }
 
     contextWindowStart = startIdx;
@@ -134,37 +152,43 @@
 
   $effect(() => {
     if (!isPlaying && (!isCompact || contextExpanded)) {
-      activeRawOffset;
+      rawOffset;
       scrollActiveWordIntoView();
     }
   });
 
   $effect(() => {
-    db.books.get(bookId).then(async (b) => {
-      if (b) {
-        book = b;
-        rawOffset = await loadLocalProgress(bookId, b.currentOffset || 0);
-        const tokens = buildPlaybackTokens(b.tokens, focusConfig.phraseChunking);
-        playbackOffset = resolvePlaybackOffset(rawOffset, tokens);
-      }
+    const id = bookId;
+    let cancelled = false;
+
+    loadBook(id).then(async (b) => {
+      if (cancelled || !b) return;
+      book = b;
+      rawOffset = await loadLocalProgress(id, b.currentOffset || 0);
     });
+
     db.settings.get('baseWpm').then((s) => {
-      if (s) baseWpm = s.value;
+      if (!cancelled && s) baseWpm = s.value;
     });
     db.settings.get('fontSize').then((s) => {
-      if (s) fontSize = s.value;
+      if (!cancelled && s) fontSize = s.value;
     });
     loadRsvpConfig().then((config) => {
-      rsvpConfig = config;
+      if (!cancelled) rsvpConfig = config;
     });
+
+    return () => {
+      cancelled = true;
+    };
   });
 
   $effect(() => {
-    if (!book) return;
+    if (!book || playbackTokens.length === 0 || isPlaying) return;
     focusConfig.phraseChunking;
-    const tokens = buildPlaybackTokens(book.tokens, focusConfig.phraseChunking);
-    playbackOffset = resolvePlaybackOffset(untrack(() => rawOffset), tokens);
+    playbackOffset = resolvePlaybackOffset(untrack(() => rawOffset), playbackTokens);
   });
+
+  let progressSaveTimer: ReturnType<typeof setTimeout> | undefined;
 
   function updateWpm(newWpm: number) {
     baseWpm = Math.max(100, Math.min(1000, newWpm));
@@ -260,8 +284,12 @@
 
   $effect(() => {
     if (!isPlaying && book) {
-      rawOffset;
-      void saveLocalProgress(bookId, rawOffset);
+      const offset = rawOffset;
+      clearTimeout(progressSaveTimer);
+      progressSaveTimer = setTimeout(() => {
+        void saveLocalProgress(bookId, offset);
+      }, 400);
+      return () => clearTimeout(progressSaveTimer);
     }
   });
 
@@ -303,15 +331,13 @@
   function selectRawOffset(nextRawOffset: number) {
     if (!book) return;
     rawOffset = nextRawOffset;
-    const tokens = buildPlaybackTokens(book.tokens, focusConfig.phraseChunking);
-    playbackOffset = resolvePlaybackOffset(rawOffset, tokens);
+    playbackOffset = resolvePlaybackOffset(rawOffset, playbackTokens);
   }
 
-  async function saveBookPatch(patch: Partial<BookRecord>) {
+  async function saveBookPatch(patch: Partial<BookMeta>) {
     if (!book) return;
-    const updated = { ...book, ...patch };
-    book = updated;
-    await db.books.put(updated);
+    book = { ...book, ...patch };
+    await db.books.update(book.id, patch);
   }
 
   function addPin() {
@@ -338,27 +364,9 @@
 
   let progressPct = $derived(
     book && book.tokens.length > 0
-      ? Math.round((activeRawOffset / book.tokens.length) * 100)
+      ? Math.round((rawOffset / book.tokens.length) * 100)
       : 0,
   );
-
-  let isCompact = $state(false);
-  let contextExpanded = $state(false);
-  let wasCompact = false;
-
-  $effect(() => {
-    const mq = window.matchMedia('(max-width: 768px)');
-    const isExtension = window.location.protocol === 'chrome-extension:';
-    const sync = () => {
-      const nowCompact = mq.matches || isExtension;
-      if (nowCompact && !wasCompact) contextExpanded = false;
-      wasCompact = nowCompact;
-      isCompact = nowCompact;
-    };
-    sync();
-    mq.addEventListener('change', sync);
-    return () => mq.removeEventListener('change', sync);
-  });
 
   function toggleContext(e: Event) {
     e.stopPropagation();
@@ -374,7 +382,7 @@
     if (!book?.chapters?.length) return 0;
     let start = book.chapters[0].startOffset;
     for (const chapter of book.chapters) {
-      if (activeRawOffset >= chapter.startOffset) start = chapter.startOffset;
+      if (rawOffset >= chapter.startOffset) start = chapter.startOffset;
     }
     return start;
   });
@@ -421,7 +429,7 @@
   <ContextPanel
     {contextTokens}
     peekTokens={peekTokens}
-    {activeRawOffset}
+    activeRawOffset={rawOffset}
     {isCompact}
     {controlsVisible}
     {contextExpanded}
@@ -653,7 +661,7 @@
 {#if showPins}
   <ReaderPins
     pins={bookPins}
-    activeOffset={activeRawOffset}
+    activeOffset={rawOffset}
     onJump={jumpToPin}
     onDelete={deletePin}
     onClose={() => (showPins = false)}

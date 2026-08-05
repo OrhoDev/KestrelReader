@@ -1,5 +1,3 @@
-import { extractArticleFromHtml } from './articleExtract';
-
 export interface UrlArticle {
   title: string;
   author: string;
@@ -46,18 +44,6 @@ async function fetchViaApi(url: string): Promise<UrlArticle> {
   return payload;
 }
 
-async function fetchDirect(url: string): Promise<UrlArticle> {
-  const parsedUrl = parseTargetUrl(url);
-  const response = await fetch(parsedUrl.href);
-
-  if (!response.ok) {
-    throw new Error(`Could not fetch page (${response.status}).`);
-  }
-
-  const html = await response.text();
-  return extractArticleFromHtml(html, parsedUrl.href);
-}
-
 export async function fetchArticleFromUrl(url: string): Promise<UrlArticle> {
   parseTargetUrl(url);
 
@@ -65,14 +51,5 @@ export async function fetchArticleFromUrl(url: string): Promise<UrlArticle> {
     throw new Error('Open the page in your browser, then use the Kestrel extension on that tab.');
   }
 
-  try {
-    return await fetchViaApi(url);
-  } catch (apiError) {
-    try {
-      return await fetchDirect(url);
-    } catch {
-      if (apiError instanceof Error) throw apiError;
-      throw new Error('Could not fetch article.');
-    }
-  }
+  return fetchViaApi(url);
 }

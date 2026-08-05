@@ -1,8 +1,7 @@
-import { calculateOrp } from './orp';
-import { calculateTokenDelay, type Token } from './pacer';
+import { type Token } from './pacer';
 import { sanitizeText } from './sanitizer';
 
-export function parsePlainText(text: string, baseWpm: number): Token[] {
+export function parsePlainText(text: string): Token[] {
   const cleaned = sanitizeText(text);
   const paragraphs = cleaned.split(/\n\s*\n/);
 
@@ -14,8 +13,6 @@ export function parsePlainText(text: string, baseWpm: number): Token[] {
     rawWords.forEach((word) => {
       tokens.push({
         text: word,
-        orp: calculateOrp(word),
-        delayMs: calculateTokenDelay(word, baseWpm),
         paragraphIndex: pIndex,
       });
     });
