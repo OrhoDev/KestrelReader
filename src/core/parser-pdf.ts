@@ -5,7 +5,7 @@ import type { Token } from './pacer';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
-export async function parsePdf(file: File | Blob, baseWpm: number): Promise<Token[]> {
+export async function parsePdf(file: File | Blob): Promise<Token[]> {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
 
@@ -18,5 +18,5 @@ export async function parsePdf(file: File | Blob, baseWpm: number): Promise<Toke
     fullText += ' ' + strings.join(' ');
   }
 
-  return parsePlainText(fullText, baseWpm);
+  return parsePlainText(fullText);
 }

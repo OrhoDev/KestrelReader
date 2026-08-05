@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { db, saveBookRecord, deleteBookBinary, type BookRecord } from '../core/db';
-  import { parsePlainText } from '../core/parser';
+  import { listBooks, saveBookRecord, deleteBookRecord, type BookMeta } from '../core/db';
   import { reportRuntimeError } from '../core/diagnostics';
-  import { createBookFromText, createBookFromTokens, findContinueBook } from '../core/bookFactory';
-  import TextImportModal from './TextImportModal.svelte';
+  import { createBookFromText, findContinueBook } from '../core/bookFactory';
+  import ScanReviewModal from './ScanReviewModal.svelte';
 
   let { onPlay, onSettings, extensionSavedBookId = null, extensionSavedTitle = null } = $props<{
     onPlay: (id: string) => void;
@@ -12,13 +11,16 @@
     extensionSavedTitle?: string | null;
   }>();
 
-  let books = $state<BookRecord[]>([]);
+  let books = $state<BookMeta[]>([]);
   let isProcessing = $state(false);
   let isDragging = $state(false);
   let dragDepth = 0;
   let deleteConfirmId = $state<string | null>(null);
   let showScanner = $state(false);
+  let showScanReview = $state(false);
   let scannerStream = $state<MediaStream | null>(null);
+  let scanSession = $state<{ title: string; parts: string[] } | null>(null);
+  let scanReviewText = $state('');
   let textImportMode = $state<'paste' | 'url' | null>(null);
   let errorMessage = $state<string | null>(null);
   let searchQuery = $state('');
@@ -51,7 +53,7 @@
   const showScan = $derived(canScan && isMobileViewport);
 
   async function refreshBooks() {
-    books = await db.books.orderBy('lastReadAt').reverse().toArray();
+    books = await listBooks();
   }
 
   $effect(() => {
@@ -85,11 +87,6 @@
     return sorted;
   });
 
-  async function getBaseWpm(): Promise<number> {
-    const settings = await db.settings.get('baseWpm');
-    return settings ? settings.value : 300;
-  }
-
   function setError(message: string) {
     errorMessage = message;
   }
@@ -98,12 +95,11 @@
     isProcessing = true;
     errorMessage = null;
     try {
-      const wpm = await getBaseWpm();
       const fileName = file.name.toLowerCase();
 
       if (fileName.endsWith('.epub')) {
         const { parseEpubWithMeta } = await import('../core/parser-epub');
-        const result = await parseEpubWithMeta(file, wpm);
+        const result = await parseEpubWithMeta(file);
         await saveBookRecord({
           id: crypto.randomUUID(),
           title: result.title || file.name.replace(/\.[^/.]+$/, ''),
@@ -118,7 +114,7 @@
         });
       } else if (fileName.endsWith('.pdf')) {
         const { parsePdf } = await import('../core/parser-pdf');
-        const tokens = await parsePdf(file, wpm);
+        const tokens = await parsePdf(file);
         await saveBookRecord({
           id: crypto.randomUUID(),
           title: file.name.replace(/\.[^/.]+$/, ''),
@@ -138,7 +134,6 @@
           author: parsed.author,
           format: 'docx',
           rawContent: file,
-          wpm,
         });
       } else if (fileName.endsWith('.mobi') || fileName.endsWith('.azw') || fileName.endsWith('.azw3')) {
         const { parseMobi } = await import('../core/parser-mobi');
@@ -148,7 +143,6 @@
           author: parsed.author,
           format: 'mobi',
           rawContent: file,
-          wpm,
         });
       } else {
         const text = await file.text();
@@ -156,7 +150,6 @@
           title: file.name.replace(/\.[^/.]+$/, ''),
           author: 'Unknown',
           format: 'text',
-          wpm,
         });
       }
 
@@ -179,12 +172,10 @@
     isProcessing = true;
     errorMessage = null;
     try {
-      const wpm = await getBaseWpm();
       const book = await createBookFromText(payload.text, {
         title: payload.title,
         author: payload.author,
         format: payload.format,
-        wpm,
       });
       await refreshBooks();
       onPlay(book.id);
@@ -239,14 +230,12 @@
   }
 
   async function deleteBook(id: string) {
-    const record = await db.books.get(id);
-    if (record) await deleteBookBinary(record);
-    await db.books.delete(id);
+    await deleteBookRecord(id);
     await refreshBooks();
     deleteConfirmId = null;
   }
 
-  function formatPercent(book: BookRecord): string {
+  function formatPercent(book: BookMeta): string {
     if (book.totalWords === 0) return '0%';
     return Math.round((book.currentOffset / book.totalWords) * 100) + '%';
   }
@@ -283,22 +272,48 @@
     releaseScannerStream();
   }
 
-  async function handleScanComplete(text: string) {
+  function resetScanSession() {
+    scanSession = null;
+    scanReviewText = '';
+    showScanReview = false;
+  }
+
+  function handleScanPage(text: string) {
     closeScanner();
+    const title = scanSession?.title ?? formatScanTitle();
+    const parts = scanSession ? [...scanSession.parts, text] : [text];
+    scanSession = { title, parts };
+    scanReviewText = parts.join('\n\n');
+    showScanReview = true;
+  }
+
+  function handleScanAddPage(editedText: string) {
+    scanSession = {
+      title: scanSession?.title ?? formatScanTitle(),
+      parts: [editedText],
+    };
+    scanReviewText = editedText;
+    showScanReview = false;
+    void openScanner();
+  }
+
+  async function handleScanStartReading(text: string) {
+    showScanReview = false;
+    const title = scanSession?.title ?? formatScanTitle();
+    scanSession = null;
+    scanReviewText = '';
     isProcessing = true;
     errorMessage = null;
     try {
-      const wpm = await getBaseWpm();
-      const tokens = parsePlainText(text, wpm);
-      const book = await createBookFromTokens(tokens, {
-        title: formatScanTitle(),
+      const book = await createBookFromText(text, {
+        title,
         author: 'Camera scan',
         format: 'scan',
       });
       await refreshBooks();
       onPlay(book.id);
     } catch (err) {
-      await reportRuntimeError(err, 'Library.handleScanComplete');
+      await reportRuntimeError(err, 'Library.handleScanStartReading');
       setError(err instanceof Error ? err.message : 'Failed to process scanned text.');
     } finally {
       isProcessing = false;
@@ -390,7 +405,7 @@
       >
         <svg style="width:2rem;height:2rem;color:var(--highlight-orp);margin-bottom:0.75rem;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
         <span style="font-size:0.85rem;font-weight:600;color:var(--text-primary);">Scan Text</span>
-        <span style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.4rem;line-height:1.5;">Photo of a page</span>
+        <span style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.4rem;line-height:1.5;">Single page or excerpt.<br/>For books, use Import File.</span>
       </button>
     {/if}
 
@@ -496,10 +511,22 @@
 </div>
 
 {#if textImportMode}
-  <TextImportModal
-    mode={textImportMode}
-    onComplete={handleTextImport}
-    onCancel={() => (textImportMode = null)}
+  {#await import('./TextImportModal.svelte') then { default: TextImportModal }}
+    <TextImportModal
+      mode={textImportMode}
+      onComplete={handleTextImport}
+      onCancel={() => (textImportMode = null)}
+    />
+  {/await}
+{/if}
+
+{#if showScanReview && scanSession}
+  <ScanReviewModal
+    text={scanReviewText}
+    pageCount={scanSession.parts.length}
+    onStartReading={handleScanStartReading}
+    onAddPage={handleScanAddPage}
+    onCancel={resetScanSession}
   />
 {/if}
 
@@ -509,7 +536,7 @@
   {:then { default: ScanCapture }}
     <ScanCapture
       initialStream={scannerStream}
-      onComplete={handleScanComplete}
+      onComplete={handleScanPage}
       onCancel={closeScanner}
     />
   {/await}

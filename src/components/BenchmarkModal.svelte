@@ -20,7 +20,7 @@
   let answers = $state<number[]>(BENCHMARK_QUESTIONS.map(() => -1));
   let result = $state<BenchmarkResult | null>(null);
 
-  const tokens = parsePlainText(BENCHMARK_PASSAGE, 300);
+  const tokens = parsePlainText(BENCHMARK_PASSAGE);
   const wordCount = tokens.length;
   let currentWord = $derived(tokens[offset]?.text ?? '');
 

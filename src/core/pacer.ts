@@ -5,12 +5,13 @@ import { adaptiveDelayMultiplier } from './wordPacing';
 
 export interface Token {
   text: string;
-  orp: OrpAnalysis;
-  delayMs: number;
   paragraphIndex?: number;
 }
 
-export interface PlaybackToken extends Token {
+export interface PlaybackToken {
+  text: string;
+  orp: OrpAnalysis;
+  paragraphIndex?: number;
   sourceStart: number;
   sourceEnd: number;
   chunkWords?: string[];
@@ -52,8 +53,9 @@ export function buildPlaybackTokens(tokens: Token[], phraseChunking: boolean): P
 
   if (!phraseChunking) {
     return tokens.map((token, index) => ({
-      ...token,
-      delayMs: 0,
+      text: token.text,
+      orp: calculateOrp(token.text),
+      paragraphIndex: token.paragraphIndex,
       sourceStart: index,
       sourceEnd: index,
     }));
@@ -73,7 +75,6 @@ export function buildPlaybackTokens(tokens: Token[], phraseChunking: boolean): P
       playbackTokens.push({
         text: combinedText,
         orp: calculateOrp(combinedText),
-        delayMs: 0,
         paragraphIndex: current.paragraphIndex,
         sourceStart: index,
         sourceEnd: index + 1,
@@ -85,8 +86,9 @@ export function buildPlaybackTokens(tokens: Token[], phraseChunking: boolean): P
     }
 
     playbackTokens.push({
-      ...current,
-      delayMs: 0,
+      text: current.text,
+      orp: calculateOrp(current.text),
+      paragraphIndex: current.paragraphIndex,
       sourceStart: index,
       sourceEnd: index,
     });

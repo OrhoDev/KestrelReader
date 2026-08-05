@@ -14,19 +14,27 @@ export interface BookChapter {
   startOffset: number;
 }
 
-export interface BookRecord {
+export interface BookMeta {
   id: string;
   title: string;
   author: string;
   format: 'epub' | 'pdf' | 'text' | 'scan' | 'paste' | 'url' | 'docx' | 'mobi';
   rawContent: string | Blob | null;
   localPath?: string;
-  tokens: Token[];
   chapters?: BookChapter[];
   pins?: BookPin[];
   currentOffset: number;
   totalWords: number;
   lastReadAt: number;
+}
+
+export interface BookRecord extends BookMeta {
+  tokens: Token[];
+}
+
+export interface BookTokensRecord {
+  bookId: string;
+  tokens: Token[];
 }
 
 export interface SettingRecord {
@@ -43,8 +51,21 @@ export interface StatRecord {
 
 const BOOKS_DIR = 'books';
 
+type LegacyBookRow = BookMeta & { tokens?: Token[] };
+
+export function slimToken(raw: { text: string; paragraphIndex?: number }): Token {
+  const token: Token = { text: raw.text };
+  if (raw.paragraphIndex !== undefined) token.paragraphIndex = raw.paragraphIndex;
+  return token;
+}
+
+export function slimTokens(tokens: Array<{ text: string; paragraphIndex?: number }>): Token[] {
+  return tokens.map(slimToken);
+}
+
 export class KestrelDB extends Dexie {
-  books!: Table<BookRecord, string>;
+  books!: Table<BookMeta, string>;
+  bookTokens!: Table<BookTokensRecord, string>;
   settings!: Table<SettingRecord, string>;
   statistics!: Table<StatRecord, string>;
 
@@ -55,6 +76,30 @@ export class KestrelDB extends Dexie {
       settings: 'key',
       statistics: 'id, date',
     });
+    this.version(2)
+      .stores({
+        books: 'id, title, author, format, lastReadAt',
+        bookTokens: 'bookId',
+        settings: 'key',
+        statistics: 'id, date',
+      })
+      .upgrade(async (tx) => {
+        const books = await tx.table<LegacyBookRow>('books').toArray();
+        const tokenTable = tx.table<BookTokensRecord>('bookTokens');
+        const bookTable = tx.table<BookMeta>('books');
+
+        for (const book of books) {
+          if (!book.tokens?.length) continue;
+
+          await tokenTable.put({
+            bookId: book.id,
+            tokens: slimTokens(book.tokens),
+          });
+
+          const { tokens: _removed, ...meta } = book;
+          await bookTable.put(meta);
+        }
+      });
   }
 }
 
@@ -82,7 +127,22 @@ async function writeBookBinary(bookId: string, data: Blob | ArrayBuffer): Promis
   return relativePath;
 }
 
-export async function loadBookBinary(record: BookRecord): Promise<Blob | null> {
+export async function listBooks(): Promise<BookMeta[]> {
+  return db.books.orderBy('lastReadAt').reverse().toArray();
+}
+
+export async function loadBook(bookId: string): Promise<BookRecord | null> {
+  const meta = await db.books.get(bookId);
+  if (!meta) return null;
+
+  const tokenRecord = await db.bookTokens.get(bookId);
+  const legacyTokens = (meta as LegacyBookRow).tokens;
+  const tokens = tokenRecord?.tokens ?? (legacyTokens ? slimTokens(legacyTokens) : []);
+
+  return { ...meta, tokens };
+}
+
+export async function loadBookBinary(record: BookMeta): Promise<Blob | null> {
   if (record.rawContent instanceof Blob) {
     return record.rawContent;
   }
@@ -102,7 +162,12 @@ export async function loadBookBinary(record: BookRecord): Promise<Blob | null> {
 }
 
 export async function saveBookRecord(book: BookRecord): Promise<void> {
-  const recordToSave: BookRecord = { ...book };
+  const { tokens, ...meta } = book;
+  const slimmed = slimTokens(tokens);
+
+  await db.bookTokens.put({ bookId: book.id, tokens: slimmed });
+
+  const recordToSave: BookMeta = { ...meta };
 
   if (isTauri() && recordToSave.rawContent instanceof Blob) {
     try {
@@ -118,7 +183,14 @@ export async function saveBookRecord(book: BookRecord): Promise<void> {
   await db.books.put(recordToSave);
 }
 
-export async function deleteBookBinary(record: BookRecord): Promise<void> {
+export async function deleteBookRecord(bookId: string, meta?: BookMeta | null): Promise<void> {
+  const record = meta ?? (await db.books.get(bookId));
+  if (record) await deleteBookBinary(record);
+  await db.bookTokens.delete(bookId);
+  await db.books.delete(bookId);
+}
+
+export async function deleteBookBinary(record: BookMeta): Promise<void> {
   if (!record.localPath || !isTauri()) return;
 
   try {

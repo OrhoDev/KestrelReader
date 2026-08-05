@@ -1,8 +1,8 @@
-import { saveBookRecord, type BookChapter, type BookRecord } from './db';
+import { saveBookRecord, type BookChapter, type BookMeta, type BookRecord } from './db';
 import { parsePlainText } from './parser';
 import type { Token } from './pacer';
 
-export type BookFormat = BookRecord['format'];
+export type BookFormat = BookMeta['format'];
 
 export async function createBookFromText(
   text: string,
@@ -12,10 +12,9 @@ export async function createBookFromText(
     format: BookFormat;
     rawContent?: string | Blob | null;
     chapters?: BookChapter[];
-    wpm: number;
   },
 ): Promise<BookRecord> {
-  const tokens = parsePlainText(text, options.wpm);
+  const tokens = parsePlainText(text);
   if (tokens.length === 0) {
     throw new Error('No readable text found.');
   }
@@ -66,7 +65,7 @@ export async function createBookFromTokens(
   return book;
 }
 
-export function findContinueBook(books: BookRecord[]): BookRecord | null {
+export function findContinueBook(books: BookMeta[]): BookMeta | null {
   const candidates = books.filter(
     (b) => b.totalWords > 0 && b.currentOffset > 0 && b.currentOffset < b.totalWords - 1,
   );
