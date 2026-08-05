@@ -21,6 +21,8 @@
       <li><kbd>→</kbd><span>Skip forward 10 words</span></li>
       <li><kbd>↑</kbd><span>Increase WPM (+25)</span></li>
       <li><kbd>↓</kbd><span>Decrease WPM (−25)</span></li>
+      <li><kbd>M</kbd><span>Add pin at current word</span></li>
+      <li><kbd>B</kbd><span>Open pins list</span></li>
       <li><kbd>?</kbd><span>Show this help</span></li>
     </ul>
   </div>

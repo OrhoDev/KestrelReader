@@ -632,6 +632,33 @@ html.extension-popup #app {
   font-weight: 700;
 }
 
+.reader-context-peek {
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: 5.5rem;
+  z-index: 22;
+  max-height: 4.5rem;
+  overflow: hidden;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid var(--ui-border);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.85);
+  pointer-events: auto;
+  text-align: center;
+}
+
+.reader-context-peek .context-word {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.reader-context-peek .context-word-active {
+  color: var(--highlight-orp);
+}
+
 .context-backdrop {
   position: absolute;
   inset: 0;

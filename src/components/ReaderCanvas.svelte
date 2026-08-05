@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { db } from '../core/db';
-  import type { BookRecord } from '../core/db';
+  import type { BookRecord, BookPin } from '../core/db';
   import {
     buildPlaybackTokens,
     rawOffsetFromPlayback,
@@ -20,6 +20,7 @@
   import { recordReading } from '../core/statistics';
   import ContextPanel from './ContextPanel.svelte';
   import ShortcutsHelp from './ShortcutsHelp.svelte';
+  import ReaderPins from './ReaderPins.svelte';
 
   let { bookId, focusConfig, onBack } = $props<{
     bookId: string;
@@ -35,6 +36,7 @@
   let fontSize = $state(2.2);
   let rsvpConfig = $state<RsvpConfig>({ ...DEFAULT_RSVP_CONFIG });
   let showShortcuts = $state(false);
+  let showPins = $state(false);
   let pendingWords = $state(0);
 
   let playbackTokens = $derived(
@@ -49,6 +51,18 @@
   let contextTokens = $state<DisplayToken[]>([]);
   let contextWindowStart = $state(-1);
   let contextWindowEnd = $state(-1);
+
+  const PEEK_RADIUS = 12;
+
+  let peekTokens = $derived.by(() => {
+    if (!book || book.tokens.length === 0) return [];
+    const offset = Math.max(0, Math.min(activeRawOffset, book.tokens.length - 1));
+    const start = Math.max(0, offset - PEEK_RADIUS);
+    const end = Math.min(book.tokens.length - 1, offset + PEEK_RADIUS);
+    return buildContextSlice(start, end);
+  });
+
+  let bookPins = $derived(book?.pins ?? []);
 
   const CONTEXT_RADIUS = 150;
 
@@ -167,6 +181,11 @@
   }
 
   function handleGlobalKeyDown(e: KeyboardEvent) {
+    if (showPins && e.key === 'Escape') {
+      showPins = false;
+      e.preventDefault();
+      return;
+    }
     if (showShortcuts && e.key === 'Escape') {
       showShortcuts = false;
       e.preventDefault();
@@ -174,6 +193,16 @@
     }
     if (e.key === '?') {
       showShortcuts = !showShortcuts;
+      e.preventDefault();
+      return;
+    }
+    if (e.key === 'm' || e.key === 'M') {
+      addPin();
+      e.preventDefault();
+      return;
+    }
+    if (e.key === 'b' || e.key === 'B') {
+      showPins = !showPins;
       e.preventDefault();
       return;
     }
@@ -269,6 +298,35 @@
     playbackOffset = resolvePlaybackOffset(rawOffset, tokens);
   }
 
+  async function saveBookPatch(patch: Partial<BookRecord>) {
+    if (!book) return;
+    const updated = { ...book, ...patch };
+    book = updated;
+    await db.books.put(updated);
+  }
+
+  function addPin() {
+    if (!book) return;
+    const pin: BookPin = {
+      id: crypto.randomUUID(),
+      label: `Pin ${(book.pins?.length ?? 0) + 1}`,
+      offset: rawOffset,
+      createdAt: Date.now(),
+    };
+    void saveBookPatch({ pins: [...(book.pins ?? []), pin] });
+  }
+
+  function deletePin(id: string) {
+    if (!book?.pins) return;
+    void saveBookPatch({ pins: book.pins.filter((p) => p.id !== id) });
+  }
+
+  function jumpToPin(offset: number) {
+    selectRawOffset(offset);
+    showPins = false;
+    isPlaying = false;
+  }
+
   let progressPct = $derived(
     book && book.tokens.length > 0
       ? Math.round((activeRawOffset / book.tokens.length) * 100)
@@ -353,10 +411,12 @@
 <div class="reader-shell">
   <ContextPanel
     {contextTokens}
+    peekTokens={peekTokens}
     {activeRawOffset}
     {isCompact}
     {controlsVisible}
     {contextExpanded}
+    contextOnPause={focusConfig.contextOnPause}
     onToggleContext={toggleContext}
     onCloseContext={closeContext}
     onSelectOffset={selectRawOffset}
@@ -422,6 +482,20 @@
             {/each}
           </select>
         {/if}
+        <button
+          type="button"
+          class="btn-flat reader-help-btn"
+          onclick={(e) => { e.stopPropagation(); showPins = true; }}
+          onkeydown={(e) => e.stopPropagation()}
+          aria-label="Pins"
+          title="Pins (B)"
+        >
+          {#if bookPins.length > 0}
+            <span class="reader-pins-count">{bookPins.length}</span>
+          {:else}
+            ◎
+          {/if}
+        </button>
         <button
           type="button"
           class="btn-flat reader-help-btn"
@@ -567,6 +641,16 @@
   <ShortcutsHelp onClose={() => (showShortcuts = false)} />
 {/if}
 
+{#if showPins}
+  <ReaderPins
+    pins={bookPins}
+    activeOffset={activeRawOffset}
+    onJump={jumpToPin}
+    onDelete={deletePin}
+    onClose={() => (showPins = false)}
+  />
+{/if}
+
 <style>
   .reader-top-actions {
     display: flex;
@@ -590,5 +674,10 @@
     padding: 0.35rem 0.55rem;
     font-family: 'Fira Code', monospace;
     font-weight: 700;
+  }
+
+  .reader-pins-count {
+    font-size: 0.72rem;
+    color: var(--highlight-orp);
   }
 </style>

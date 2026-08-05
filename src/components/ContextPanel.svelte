@@ -3,20 +3,24 @@
 
   let {
     contextTokens,
+    peekTokens = [],
     activeRawOffset,
     isCompact = false,
     controlsVisible,
     contextExpanded = false,
+    contextOnPause = true,
     onToggleContext,
     onCloseContext,
     onSelectOffset,
     onTogglePlay,
   } = $props<{
     contextTokens: DisplayToken[];
+    peekTokens?: DisplayToken[];
     activeRawOffset: number;
     isCompact?: boolean;
     controlsVisible: boolean;
     contextExpanded?: boolean;
+    contextOnPause?: boolean;
     onToggleContext?: (e: Event) => void;
     onCloseContext?: (e: Event) => void;
     onSelectOffset: (offset: number) => void;
@@ -25,6 +29,10 @@
 
   let panelClass = $derived(
     `reader-context-panel${!controlsVisible ? ' is-hidden' : ''}`,
+  );
+
+  let showPeek = $derived(
+    isCompact && controlsVisible && contextOnPause && !contextExpanded && peekTokens.length > 0,
   );
 
   function isTokenActive(globalIndex: number): boolean {
@@ -43,9 +51,9 @@
   }
 </script>
 
-{#snippet contextBody()}
-  {#each contextTokens as token, i (token.globalIndex)}
-    {#if i > 0 && token.paragraphIndex !== undefined && contextTokens[i - 1].paragraphIndex !== token.paragraphIndex}
+{#snippet contextBody(tokens: DisplayToken[])}
+  {#each tokens as token, i (token.globalIndex)}
+    {#if i > 0 && token.paragraphIndex !== undefined && tokens[i - 1].paragraphIndex !== token.paragraphIndex}
       <br /><br />
     {/if}
     <span
@@ -63,9 +71,15 @@
   {/each}
 {/snippet}
 
+{#if showPeek}
+  <div class="reader-context-peek" aria-label="Reading context">
+  {@render contextBody(peekTokens)}
+  </div>
+{/if}
+
 {#if !isCompact}
   <div class={panelClass}>
-    {@render contextBody()}
+    {@render contextBody(contextTokens)}
   </div>
 {:else if controlsVisible}
   {#if contextExpanded}
@@ -84,7 +98,7 @@
     </button>
     {#if contextExpanded}
       <div class="reader-context-drawer-body">
-        {@render contextBody()}
+        {@render contextBody(contextTokens)}
       </div>
     {/if}
   </div>

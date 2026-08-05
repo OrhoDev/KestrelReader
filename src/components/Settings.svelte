@@ -93,7 +93,7 @@
   }
 
   const themes: { key: 'falcon' | 'sand' | 'steppe'; label: string; desc: string; swatch: string }[] = [
-    { key: 'falcon', label: "Falcon's Canopy", desc: 'Warm dark espresso', swatch: '#1E1916' },
+    { key: 'falcon', label: "Canopy", desc: 'Warm dark espresso', swatch: '#1E1916' },
     { key: 'sand',   label: 'Sand & Slate',    desc: 'Soft oatmeal light',  swatch: '#F4EFEA' },
     { key: 'steppe', label: 'High Steppe',     desc: 'Mid-contrast clay',   swatch: '#8C827A' },
   ];
@@ -183,6 +183,18 @@
         <label class="focus-toggle">
           <input
             type="checkbox"
+            checked={focusConfig.contextOnPause}
+            onchange={(e) => updateFocusConfig({ contextOnPause: e.currentTarget.checked })}
+          />
+          <span>
+            <strong>Context on pause</strong>
+            <small>Show surrounding words when paused on mobile.</small>
+          </span>
+        </label>
+
+        <label class="focus-toggle">
+          <input
+            type="checkbox"
             checked={focusConfig.phraseChunking}
             onchange={(e) => updateFocusConfig({ phraseChunking: e.currentTarget.checked })}
           />
@@ -224,6 +236,18 @@
 
     <div class="card" style="padding:1.5rem;margin-bottom:1.25rem;">
       <h2 style="margin:0 0 1rem 0;font-size:1rem;font-weight:600;color:var(--text-primary);">RSVP timing</h2>
+
+        <label class="focus-toggle" style="margin-bottom:1rem;">
+        <input
+          type="checkbox"
+          checked={rsvpConfig.adaptivePacing}
+          onchange={(e) => updateRsvpConfig({ adaptivePacing: e.currentTarget.checked })}
+        />
+        <span>
+          <strong>Adaptive pacing</strong>
+          <small>Slow down on long words, names, and numbers.</small>
+        </span>
+      </label>
 
       <label class="focus-toggle" style="margin-bottom:1rem;">
         <input

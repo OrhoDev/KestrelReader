@@ -18,6 +18,7 @@
   let useCamera = $state(true);
   let cameraReady = $state(false);
   let cameraStarting = $state(false);
+  let cameraRequested = $state(false);
   let videoEl = $state<HTMLVideoElement | null>(null);
   let stream = $state<MediaStream | null>(null);
   let sweeping = $state(false);
@@ -102,8 +103,10 @@
       useCamera = true;
       cameraReady = true;
     } catch (err) {
+      await reportRuntimeError(err, 'ScanCapture.startCamera');
       useCamera = false;
       cameraReady = false;
+      cameraRequested = false;
       stopStream();
 
       const name = err instanceof DOMException ? err.name : '';
@@ -119,16 +122,26 @@
     }
   }
 
+  function returnToCamera() {
+    phase = 'camera';
+    cameraRequested = false;
+    cameraReady = false;
+    stopStream();
+  }
+
+  function enableCamera() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      useCamera = false;
+      errorMessage = 'Camera not supported in this browser.';
+      return;
+    }
+    errorMessage = null;
+    cameraRequested = true;
+    if (videoEl) void startCamera(videoEl);
+  }
+
   $effect(() => {
-    if (phase !== 'camera' || !videoEl) return;
-
-    let cancelled = false;
-    startCamera(videoEl).then(() => {
-      if (cancelled) stopStream();
-    });
-
     return () => {
-      cancelled = true;
       stopStream();
     };
   });
@@ -178,7 +191,7 @@
       const cleaned = text.replace(/\s+/g, ' ').trim();
       if (!cleaned) {
         errorMessage = 'No text found. Try more light or hold steadier.';
-        phase = 'camera';
+        returnToCamera();
         return;
       }
 
@@ -186,7 +199,7 @@
     } catch (err) {
       await reportRuntimeError(err, 'ScanCapture.processCanvas');
       errorMessage = 'Could not read text. Try again.';
-      phase = 'camera';
+      returnToCamera();
     }
   }
 
@@ -234,12 +247,12 @@
       if (cleaned) onComplete(cleaned);
       else {
         errorMessage = 'No text captured during sweep.';
-        phase = 'camera';
+        returnToCamera();
       }
     } catch (err) {
       await reportRuntimeError(err, 'ScanCapture.endSweep');
       errorMessage = 'Could not read swept text.';
-      phase = 'camera';
+      returnToCamera();
     }
   }
 
@@ -267,7 +280,7 @@
     } catch (err) {
       await reportRuntimeError(err, 'ScanCapture.handleFileInput');
       errorMessage = 'Could not load that image.';
-      phase = 'camera';
+      returnToCamera();
     }
   }
 
@@ -323,7 +336,19 @@
 
       {#if cameraStarting || !cameraReady}
         <div class="scan-camera-loading" aria-live="polite">
-          <p>{cameraStarting ? 'Starting camera…' : 'Waiting for camera…'}</p>
+          {#if !cameraRequested}
+            <button type="button" class="btn-primary scan-enable-camera" onclick={enableCamera}>
+              Turn on camera
+            </button>
+            <p class="scan-enable-hint">Required on mobile. Tap to allow access.</p>
+          {:else}
+            <p>{cameraStarting ? 'Starting camera…' : 'Waiting for camera…'}</p>
+            {#if !cameraStarting && !cameraReady}
+              <button type="button" class="btn-flat scan-retry-camera" onclick={enableCamera}>
+                Retry
+              </button>
+            {/if}
+          {/if}
         </div>
       {/if}
 
@@ -459,11 +484,12 @@
     position: absolute;
     inset: 0;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.35);
-    z-index: 1;
-    pointer-events: none;
+    gap: 0.65rem;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 3;
   }
 
   .scan-camera-loading p {
@@ -473,6 +499,24 @@
     background: rgba(0, 0, 0, 0.65);
     font-size: 0.82rem;
     color: #fff;
+  }
+
+  .scan-enable-camera {
+    font-size: 0.9rem;
+  }
+
+  .scan-enable-hint {
+    margin: 0;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.7);
+    text-align: center;
+    max-width: 16rem;
+    line-height: 1.45;
+  }
+
+  .scan-retry-camera {
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.35);
   }
 
   .scan-line-guide {

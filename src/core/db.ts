@@ -2,6 +2,13 @@ import Dexie, { type Table } from 'dexie';
 import type { Token } from './pacer';
 import { reportRuntimeError } from './diagnostics';
 
+export interface BookPin {
+  id: string;
+  label: string;
+  offset: number;
+  createdAt: number;
+}
+
 export interface BookChapter {
   title: string;
   startOffset: number;
@@ -16,6 +23,7 @@ export interface BookRecord {
   localPath?: string;
   tokens: Token[];
   chapters?: BookChapter[];
+  pins?: BookPin[];
   currentOffset: number;
   totalWords: number;
   lastReadAt: number;

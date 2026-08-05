@@ -6,12 +6,14 @@ export interface FocusConfig {
   bionicAnchor: boolean;
   phraseChunking: boolean;
   visualTint: VisualTint;
+  contextOnPause: boolean;
 }
 
 export const DEFAULT_FOCUS_CONFIG: FocusConfig = {
   bionicAnchor: false,
   phraseChunking: false,
   visualTint: 'none',
+  contextOnPause: true,
 };
 
 const FOCUS_CONFIG_KEY = 'focusConfig';
@@ -27,6 +29,7 @@ export async function loadFocusConfig(): Promise<FocusConfig> {
     bionicAnchor: stored.bionicAnchor ?? DEFAULT_FOCUS_CONFIG.bionicAnchor,
     phraseChunking: stored.phraseChunking ?? DEFAULT_FOCUS_CONFIG.phraseChunking,
     visualTint: isVisualTint(stored.visualTint) ? stored.visualTint : DEFAULT_FOCUS_CONFIG.visualTint,
+    contextOnPause: stored.contextOnPause ?? DEFAULT_FOCUS_CONFIG.contextOnPause,
   };
 }
 

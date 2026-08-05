@@ -6,6 +6,7 @@ export interface RsvpConfig {
   longWordPause: number;
   rampUpEnabled: boolean;
   rampUpWords: number;
+  adaptivePacing: boolean;
 }
 
 export const DEFAULT_RSVP_CONFIG: RsvpConfig = {
@@ -14,6 +15,7 @@ export const DEFAULT_RSVP_CONFIG: RsvpConfig = {
   longWordPause: 0.2,
   rampUpEnabled: true,
   rampUpWords: 40,
+  adaptivePacing: true,
 };
 
 const RSVP_CONFIG_KEY = 'rsvpConfig';
@@ -30,6 +32,7 @@ export async function loadRsvpConfig(): Promise<RsvpConfig> {
     longWordPause: clamp(stored.longWordPause ?? DEFAULT_RSVP_CONFIG.longWordPause, 0, 1),
     rampUpEnabled: stored.rampUpEnabled ?? DEFAULT_RSVP_CONFIG.rampUpEnabled,
     rampUpWords: clamp(stored.rampUpWords ?? DEFAULT_RSVP_CONFIG.rampUpWords, 5, 200),
+    adaptivePacing: stored.adaptivePacing ?? DEFAULT_RSVP_CONFIG.adaptivePacing,
   };
 }
 

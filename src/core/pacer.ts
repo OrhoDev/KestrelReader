@@ -1,6 +1,7 @@
 import { calculateOrp, type OrpAnalysis } from './orp';
 import type { RsvpConfig } from './rsvpConfig';
 import { DEFAULT_RSVP_CONFIG } from './rsvpConfig';
+import { adaptiveDelayMultiplier } from './wordPacing';
 
 export interface Token {
   text: string;
@@ -128,8 +129,12 @@ export function calculateTokenDelay(
     multiplier += timing.sentencePause;
   } else if ([',', ';', ':'].includes(lastChar)) {
     multiplier += timing.commaPause;
-  } else if (text.includes('—') || text.includes('-')) {
+  } else if (text.includes('-')) {
     multiplier += 0.30;
+  }
+
+  if (timing.adaptivePacing) {
+    multiplier *= adaptiveDelayMultiplier(text);
   }
 
   return Math.round(baseDelay * multiplier);
