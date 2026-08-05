@@ -14,10 +14,8 @@
 
   type Phase = 'camera' | 'processing';
 
-  const FRAME_WIDTH_RATIO = 0.92;
-  const FRAME_HEIGHT_RATIO = 0.78;
-  const ZOOM_MIN = 1;
-  const ZOOM_MAX = 2.5;
+  const MIN_ZOOM = 1;
+  const MAX_ZOOM = 2.5;
   const ZOOM_STEP = 0.25;
 
   let phase = $state<Phase>('camera');
@@ -26,12 +24,16 @@
   let errorMessage = $state<string | null>(null);
   let useCamera = $state(true);
   let cameraReady = $state(false);
-  let zoom = $state(1);
   let videoEl = $state<HTMLVideoElement | null>(null);
+  let stageEl = $state<HTMLDivElement | null>(null);
   let frameEl = $state<HTMLDivElement | null>(null);
   let stream = $state<MediaStream | null>(null);
   let ownsStreamTracks = false;
   let cameraSession = 0;
+  let zoom = $state(1);
+  let panX = $state(0);
+  let panY = $state(0);
+  let dragOrigin: { x: number; y: number; panX: number; panY: number } | null = null;
 
   function detachVideo() {
     if (videoEl) videoEl.srcObject = null;
@@ -45,6 +47,47 @@
     stream = null;
     ownsStreamTracks = false;
     detachVideo();
+  }
+
+  function clampPan() {
+    if (!stageEl || zoom <= 1) {
+      panX = 0;
+      panY = 0;
+      return;
+    }
+    const maxPanX = (stageEl.clientWidth * (zoom - 1)) / 2;
+    const maxPanY = (stageEl.clientHeight * (zoom - 1)) / 2;
+    panX = Math.max(-maxPanX, Math.min(maxPanX, panX));
+    panY = Math.max(-maxPanY, Math.min(maxPanY, panY));
+  }
+
+  function zoomIn() {
+    zoom = Math.min(MAX_ZOOM, zoom + ZOOM_STEP);
+    clampPan();
+  }
+
+  function zoomOut() {
+    zoom = Math.max(MIN_ZOOM, zoom - ZOOM_STEP);
+    clampPan();
+  }
+
+  function onStagePointerDown(e: PointerEvent) {
+    if (zoom <= 1 || e.button !== 0) return;
+    dragOrigin = { x: e.clientX, y: e.clientY, panX, panY };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function onStagePointerMove(e: PointerEvent) {
+    if (!dragOrigin) return;
+    panX = dragOrigin.panX + (e.clientX - dragOrigin.x);
+    panY = dragOrigin.panY + (e.clientY - dragOrigin.y);
+    clampPan();
+  }
+
+  function onStagePointerUp(e: PointerEvent) {
+    if (!dragOrigin) return;
+    dragOrigin = null;
+    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
   }
 
   async function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
@@ -142,86 +185,69 @@
     return () => releaseStream();
   });
 
-  function mapPointToVideo(
+  /** Map a point in stage coordinates to video source pixels (cover fit + pan/zoom). */
+  function mapStagePointToVideo(
+    x: number,
+    y: number,
     video: HTMLVideoElement,
-    clientX: number,
-    clientY: number,
-  ): { x: number; y: number } | null {
-    const rect = video.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return null;
-
-    const nx = (clientX - rect.left) / rect.width;
-    const ny = (clientY - rect.top) / rect.height;
-    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return null;
-
+    container: HTMLElement,
+  ): { x: number; y: number } {
     const vw = video.videoWidth;
     const vh = video.videoHeight;
-    const elementAspect = rect.width / rect.height;
-    const videoAspect = vw / vh;
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    const coverScale = Math.max(cw / vw, ch / vh);
+    const dispW = vw * coverScale;
+    const dispH = vh * coverScale;
+    const baseOffsetX = (cw - dispW) / 2;
+    const baseOffsetY = (ch - dispH) / 2;
 
-    let sx = 0;
-    let sy = 0;
-    let sw = vw;
-    let sh = vh;
-
-    if (videoAspect > elementAspect) {
-      sw = vh * elementAspect;
-      sx = (vw - sw) / 2;
-    } else {
-      sh = vw / elementAspect;
-      sy = (vh - sh) / 2;
-    }
+    const cx = cw / 2;
+    const cy = ch / 2;
+    const localX = (x - cx - panX) / zoom + cx;
+    const localY = (y - cy - panY) / zoom + cy;
 
     return {
-      x: sx + nx * sw,
-      y: sy + ny * sh,
+      x: (localX - baseOffsetX) / coverScale,
+      y: (localY - baseOffsetY) / coverScale,
     };
   }
 
-  function cropCenterRegion(
-    source: HTMLCanvasElement,
-    widthRatio = FRAME_WIDTH_RATIO,
-    heightRatio = FRAME_HEIGHT_RATIO,
-  ): HTMLCanvasElement {
-    const sw = Math.max(1, Math.round(source.width * widthRatio));
-    const sh = Math.max(1, Math.round(source.height * heightRatio));
-    const sx = Math.round((source.width - sw) / 2);
-    const sy = Math.round((source.height - sh) / 2);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = sw;
-    canvas.height = sh;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return source;
-    ctx.drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh);
-    return canvas;
-  }
-
   function captureFrame(): HTMLCanvasElement | null {
-    if (!videoEl || !frameEl || !cameraReady || videoEl.videoWidth === 0) return null;
+    if (!videoEl || !stageEl || !frameEl || !cameraReady || videoEl.videoWidth === 0) return null;
 
+    const stageRect = stageEl.getBoundingClientRect();
     const frameRect = frameEl.getBoundingClientRect();
-    const topLeft = mapPointToVideo(videoEl, frameRect.left, frameRect.top);
-    const bottomRight = mapPointToVideo(videoEl, frameRect.right, frameRect.bottom);
-    if (!topLeft || !bottomRight) return null;
-
     const vw = videoEl.videoWidth;
     const vh = videoEl.videoHeight;
-    const x1 = Math.max(0, Math.min(topLeft.x, bottomRight.x));
-    const y1 = Math.max(0, Math.min(topLeft.y, bottomRight.y));
-    const x2 = Math.min(vw, Math.max(topLeft.x, bottomRight.x));
-    const y2 = Math.min(vh, Math.max(topLeft.y, bottomRight.y));
-    const sw = Math.max(1, Math.round(x2 - x1));
-    const sh = Math.max(1, Math.round(y2 - y1));
-    const sx = Math.round(x1);
-    const sy = Math.round(y1);
+
+    const x1 = frameRect.left - stageRect.left;
+    const y1 = frameRect.top - stageRect.top;
+    const x2 = x1 + frameRect.width;
+    const y2 = y1 + frameRect.height;
+
+    const corners = [
+      mapStagePointToVideo(x1, y1, videoEl, stageEl),
+      mapStagePointToVideo(x2, y1, videoEl, stageEl),
+      mapStagePointToVideo(x2, y2, videoEl, stageEl),
+      mapStagePointToVideo(x1, y2, videoEl, stageEl),
+    ];
+
+    let minX = Math.max(0, Math.floor(Math.min(...corners.map((c) => c.x))));
+    let minY = Math.max(0, Math.floor(Math.min(...corners.map((c) => c.y))));
+    let maxX = Math.min(vw, Math.ceil(Math.max(...corners.map((c) => c.x))));
+    let maxY = Math.min(vh, Math.ceil(Math.max(...corners.map((c) => c.y))));
+
+    const cropW = maxX - minX;
+    const cropH = maxY - minY;
+    if (cropW < 48 || cropH < 48) return null;
 
     const canvas = document.createElement('canvas');
-    canvas.width = sw;
-    canvas.height = sh;
+    canvas.width = cropW;
+    canvas.height = cropH;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
-    ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, sw, sh);
+    ctx.drawImage(videoEl, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
     return canvas;
   }
 
@@ -257,7 +283,10 @@
 
   async function handleCapture() {
     const canvas = captureFrame();
-    if (!canvas) return;
+    if (!canvas) {
+      errorMessage = 'Could not capture frame. Try again.';
+      return;
+    }
     await processCanvas(canvas);
   }
 
@@ -269,8 +298,8 @@
 
     try {
       releaseStream();
-      const full = await loadImageToCanvas(file);
-      await processCanvas(cropCenterRegion(full));
+      const canvas = await loadImageToCanvas(file);
+      await processCanvas(canvas);
     } catch (err) {
       await reportRuntimeError(err, 'ScanCapture.handleFileInput');
       errorMessage = 'Could not load image.';
@@ -281,14 +310,6 @@
   function handleClose() {
     releaseStream();
     onCancel();
-  }
-
-  function zoomIn() {
-    zoom = Math.min(ZOOM_MAX, zoom + ZOOM_STEP);
-  }
-
-  function zoomOut() {
-    zoom = Math.max(ZOOM_MIN, zoom - ZOOM_STEP);
   }
 </script>
 
@@ -307,32 +328,28 @@
   {:else}
     <button type="button" class="scan-close" onclick={handleClose} aria-label="Close">×</button>
 
-    <div class="scan-stage">
+    <div
+      class="scan-stage"
+      bind:this={stageEl}
+      class:scan-stage-pannable={zoom > 1}
+      role="group"
+      aria-label="Camera preview"
+      onpointerdown={onStagePointerDown}
+      onpointermove={onStagePointerMove}
+      onpointerup={onStagePointerUp}
+      onpointercancel={onStagePointerUp}
+    >
       {#if useCamera}
-        <div class="scan-viewport">
-          <div class="scan-video-wrap" style="transform: scale({zoom})">
-            <video use:videoRef class="scan-video" playsinline muted></video>
-          </div>
-          <div class="scan-frame-overlay" aria-hidden="true">
-            <div class="scan-frame" bind:this={frameEl}></div>
-          </div>
-          <div class="scan-zoom-controls">
-            <button
-              type="button"
-              class="scan-zoom-btn"
-              onclick={zoomIn}
-              disabled={zoom >= ZOOM_MAX}
-              aria-label="Zoom in"
-            >+</button>
-            <button
-              type="button"
-              class="scan-zoom-btn"
-              onclick={zoomOut}
-              disabled={zoom <= ZOOM_MIN}
-              aria-label="Zoom out"
-            >−</button>
-          </div>
+        <div class="scan-video-wrap">
+          <video
+            use:videoRef
+            class="scan-video"
+            style="transform: translate({panX}px, {panY}px) scale({zoom})"
+            playsinline
+            muted
+          ></video>
         </div>
+        <div class="scan-frame" bind:this={frameEl} aria-hidden="true"></div>
       {:else}
         <div class="scan-fallback">
           <p>{errorMessage ?? 'Camera unavailable.'}</p>
@@ -350,17 +367,35 @@
 
     {#if useCamera}
       <footer class="scan-footer">
-        <label class="scan-gallery-btn" aria-label="Choose from gallery">
+        <label class="scan-side-btn" aria-label="Choose from gallery">
           <input type="file" accept="image/*" onchange={handleFileInput} hidden />
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
             <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>
           </svg>
         </label>
+
+        <div class="scan-zoom-controls">
+          <button
+            type="button"
+            class="scan-side-btn"
+            onclick={zoomOut}
+            disabled={zoom <= MIN_ZOOM}
+            aria-label="Zoom out"
+          >−</button>
+          <button
+            type="button"
+            class="scan-side-btn"
+            onclick={zoomIn}
+            disabled={zoom >= MAX_ZOOM}
+            aria-label="Zoom in"
+          >+</button>
+        </div>
+
         <button
           type="button"
           class="scan-capture-btn"
           onclick={handleCapture}
-          aria-label="Capture framed text"
+          aria-label="Capture"
           disabled={!cameraReady}
         >
           <span class="scan-capture-inner"></span>
@@ -402,20 +437,21 @@
     flex: 1;
     min-height: 0;
     background: #111;
+    touch-action: none;
   }
 
-  .scan-viewport {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
+  .scan-stage-pannable {
+    cursor: grab;
+  }
+
+  .scan-stage-pannable:active {
+    cursor: grabbing;
   }
 
   .scan-video-wrap {
-    width: 100%;
-    height: 100%;
-    transform-origin: center center;
-    transition: transform 0.15s ease;
-    will-change: transform;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
   }
 
   .scan-video {
@@ -424,56 +460,22 @@
     object-fit: cover;
     display: block;
     background: #111;
-  }
-
-  .scan-frame-overlay {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: none;
-    z-index: 2;
+    transform-origin: center center;
+    will-change: transform;
   }
 
   .scan-frame {
-    width: 92%;
-    height: 78%;
-    max-height: calc(100% - 3.5rem);
-    border: 2px solid var(--highlight-orp);
-    border-radius: 10px;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
-  }
-
-  .scan-zoom-controls {
     position: absolute;
-    right: 0.65rem;
+    left: 50%;
     top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    flex-direction: column;
-    gap: 0.45rem;
-    z-index: 3;
-  }
-
-  .scan-zoom-btn {
-    width: 2.35rem;
-    height: 2.35rem;
-    border: none;
-    border-radius: 999px;
-    background: rgba(0, 0, 0, 0.5);
-    color: #fff;
-    font-size: 1.2rem;
-    line-height: 1;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .scan-zoom-btn:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
+    transform: translate(-50%, -50%);
+    width: min(92vw, calc(100% - 1.25rem));
+    height: min(74vh, calc(100% - 5rem));
+    border: 2px solid var(--highlight-orp);
+    border-radius: 6px;
+    pointer-events: none;
+    z-index: 2;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.42);
   }
 
   .scan-fallback {
@@ -510,29 +512,42 @@
     color: #fff;
     font-size: 0.8rem;
     text-align: center;
-    z-index: 4;
+    z-index: 3;
   }
 
   .scan-footer {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 1.5rem;
+    gap: 1rem;
     padding: 1rem 1rem max(1.25rem, env(safe-area-inset-bottom));
     background: rgba(0, 0, 0, 0.4);
-    z-index: 2;
+    z-index: 3;
   }
 
-  .scan-gallery-btn {
+  .scan-side-btn {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 2.5rem;
     height: 2.5rem;
     border-radius: 999px;
+    border: none;
     background: rgba(255, 255, 255, 0.12);
     color: #fff;
+    font-size: 1.15rem;
+    line-height: 1;
     cursor: pointer;
+  }
+
+  .scan-side-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .scan-zoom-controls {
+    display: flex;
+    gap: 0.35rem;
   }
 
   .scan-capture-btn {
