@@ -50,7 +50,7 @@
         format: 'url',
       });
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : 'Import failed.';
+      errorMessage = err instanceof Error ? err.message : "Couldn't import that.";
     } finally {
       isLoading = false;
     }

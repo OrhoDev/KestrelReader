@@ -86,7 +86,7 @@
   {#if runtimeError}
     <div style="position:fixed;top:0;left:0;right:0;z-index:10000;padding:0.65rem 1rem;background:var(--bg-secondary);border-bottom:1px solid var(--highlight-orp);display:flex;align-items:center;justify-content:space-between;gap:1rem;">
       <p style="margin:0;font-size:0.82rem;color:var(--text-primary);">
-        {runtimeError.context}: {runtimeError.message}
+        {runtimeError.message}
       </p>
       <button class="btn-flat" onclick={() => (runtimeError = null)}>Dismiss</button>
     </div>

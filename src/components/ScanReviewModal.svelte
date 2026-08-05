@@ -23,7 +23,7 @@
   function handleStart() {
     const trimmed = editedText.trim();
     if (!trimmed) {
-      errorMessage = 'No text to read.';
+      errorMessage = 'Nothing to read yet.';
       return;
     }
     onStartReading(trimmed);

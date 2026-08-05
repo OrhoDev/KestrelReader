@@ -8,7 +8,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const activeTab = tabs[0];
     if (!activeTab?.id) {
-      sendResponse({ text: '', title: '', author: '', error: 'No active tab found' });
+      sendResponse({ text: '', title: '', author: '', error: 'Open a page first, then try again.' });
       return;
     }
 

@@ -128,7 +128,7 @@ export async function loadImageToCanvas(file: Blob): Promise<HTMLCanvasElement> 
     const img = new Image();
     await new Promise<void>((resolve, reject) => {
       img.onload = () => resolve();
-      img.onerror = () => reject(new Error('Failed to load image'));
+      img.onerror = () => reject(new Error("Couldn't open that image."));
       img.src = url;
     });
 

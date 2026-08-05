@@ -257,7 +257,7 @@
       });
 
       if (!text.replace(/\s+/g, ' ').trim()) {
-        errorMessage = 'No text found.';
+        errorMessage = 'No text in that photo. Try a closer shot.';
         phase = 'camera';
         return;
       }
@@ -266,7 +266,7 @@
       onComplete(text);
     } catch (err) {
       await reportRuntimeError(err, 'ScanCapture.processCanvas');
-      errorMessage = 'Could not read text.';
+      errorMessage = "Couldn't read the text in that photo.";
       phase = 'camera';
     }
   }
@@ -289,7 +289,7 @@
       await processCanvas(canvas);
     } catch (err) {
       await reportRuntimeError(err, 'ScanCapture.handleFileInput');
-      errorMessage = 'Could not load image.';
+      errorMessage = "Couldn't open that image.";
       phase = 'camera';
     }
   }

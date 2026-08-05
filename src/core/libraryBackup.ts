@@ -48,7 +48,7 @@ export async function importLibraryBackup(file: File): Promise<number> {
     const data = JSON.parse(text) as LibraryBackup;
 
     if (!data.books || !Array.isArray(data.books)) {
-      throw new Error('Invalid backup file.');
+      throw new Error("That file isn't a Kestrel backup.");
     }
 
     let imported = 0;

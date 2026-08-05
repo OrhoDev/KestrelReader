@@ -156,7 +156,7 @@
       await refreshBooks();
     } catch (err) {
       await reportRuntimeError(err, 'Library.processFile');
-      setError('Failed to process that file.');
+      setError("Couldn't read that file. Try another format.");
     } finally {
       isProcessing = false;
     }
@@ -181,7 +181,7 @@
       onPlay(book.id);
     } catch (err) {
       await reportRuntimeError(err, 'Library.handleTextImport');
-      setError(err instanceof Error ? err.message : 'Import failed.');
+      setError(err instanceof Error ? err.message : "Couldn't import that.");
     } finally {
       isProcessing = false;
     }
@@ -314,7 +314,7 @@
       onPlay(book.id);
     } catch (err) {
       await reportRuntimeError(err, 'Library.handleScanStartReading');
-      setError(err instanceof Error ? err.message : 'Failed to process scanned text.');
+      setError(err instanceof Error ? err.message : "Couldn't save that scan.");
     } finally {
       isProcessing = false;
     }

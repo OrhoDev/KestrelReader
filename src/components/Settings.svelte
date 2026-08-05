@@ -95,7 +95,7 @@
       backupMessage = `Imported ${count} book${count === 1 ? '' : 's'}.`;
     } catch (err) {
       await reportRuntimeError(err, 'Settings.import');
-      backupMessage = err instanceof Error ? err.message : 'Import failed.';
+      backupMessage = err instanceof Error ? err.message : "Couldn't import that.";
     }
   }
 
