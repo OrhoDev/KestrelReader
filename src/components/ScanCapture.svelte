@@ -14,10 +14,6 @@
 
   type Phase = 'camera' | 'processing';
 
-  const MIN_ZOOM = 1;
-  const MAX_ZOOM = 2.5;
-  const ZOOM_STEP = 0.25;
-
   let phase = $state<Phase>('camera');
   let progress = $state(0);
   let progressStatus = $state('Reading text…');
@@ -25,15 +21,22 @@
   let useCamera = $state(true);
   let cameraReady = $state(false);
   let videoEl = $state<HTMLVideoElement | null>(null);
-  let stageEl = $state<HTMLDivElement | null>(null);
-  let frameEl = $state<HTMLDivElement | null>(null);
   let stream = $state<MediaStream | null>(null);
   let ownsStreamTracks = false;
   let cameraSession = 0;
-  let zoom = $state(1);
-  let panX = $state(0);
-  let panY = $state(0);
-  let dragOrigin: { x: number; y: number; panX: number; panY: number } | null = null;
+  let zoomLevel = $state(1);
+  let zoomMin = $state(1);
+  let zoomMax = $state(1);
+  let zoomStep = $state(0.1);
+  let useHardwareZoom = $state(false);
+  let cssZoom = $state(1);
+
+  const canZoomOut = $derived(
+    useHardwareZoom ? zoomLevel > zoomMin : cssZoom > 1,
+  );
+  const canZoomIn = $derived(
+    useHardwareZoom ? zoomLevel < zoomMax : cssZoom < 3,
+  );
 
   function detachVideo() {
     if (videoEl) videoEl.srcObject = null;
@@ -49,52 +52,78 @@
     detachVideo();
   }
 
-  function clampPan() {
-    if (!stageEl || zoom <= 1) {
-      panX = 0;
-      panY = 0;
-      return;
-    }
-    const maxPanX = (stageEl.clientWidth * (zoom - 1)) / 2;
-    const maxPanY = (stageEl.clientHeight * (zoom - 1)) / 2;
-    panX = Math.max(-maxPanX, Math.min(maxPanX, panX));
-    panY = Math.max(-maxPanY, Math.min(maxPanY, panY));
-  }
-
-  function zoomIn() {
-    zoom = Math.min(MAX_ZOOM, zoom + ZOOM_STEP);
-    clampPan();
-  }
-
-  function zoomOut() {
-    zoom = Math.max(MIN_ZOOM, zoom - ZOOM_STEP);
-    clampPan();
-  }
-
-  function onStagePointerDown(e: PointerEvent) {
-    if (zoom <= 1 || e.button !== 0) return;
-    dragOrigin = { x: e.clientX, y: e.clientY, panX, panY };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-
-  function onStagePointerMove(e: PointerEvent) {
-    if (!dragOrigin) return;
-    panX = dragOrigin.panX + (e.clientX - dragOrigin.x);
-    panY = dragOrigin.panY + (e.clientY - dragOrigin.y);
-    clampPan();
-  }
-
-  function onStagePointerUp(e: PointerEvent) {
-    if (!dragOrigin) return;
-    dragOrigin = null;
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-  }
-
   async function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
     if (video.videoWidth > 0 && video.videoHeight > 0) return;
     await new Promise<void>((resolve) => {
       video.addEventListener('loadedmetadata', () => resolve(), { once: true });
     });
+  }
+
+  function getVideoTrack(): MediaStreamTrack | null {
+    if (!stream) return null;
+    return stream.getVideoTracks()[0] ?? null;
+  }
+
+  function initZoom() {
+    const track = getVideoTrack();
+    if (!track?.getCapabilities) {
+      useHardwareZoom = false;
+      cssZoom = 1;
+      return;
+    }
+
+    const caps = track.getCapabilities() as MediaTrackCapabilities & {
+      zoom?: { min: number; max: number; step?: number };
+    };
+    const zoomCap = caps.zoom;
+    if (zoomCap && zoomCap.max > zoomCap.min) {
+      zoomMin = zoomCap.min;
+      zoomMax = zoomCap.max;
+      zoomStep = zoomCap.step ?? 0.1;
+      const settings = track.getSettings() as MediaTrackSettings & { zoom?: number };
+      zoomLevel = settings.zoom ?? zoomMin;
+      useHardwareZoom = true;
+      cssZoom = 1;
+      return;
+    }
+
+    useHardwareZoom = false;
+    cssZoom = 1;
+  }
+
+  async function applyZoom(level: number) {
+    const track = getVideoTrack();
+    if (useHardwareZoom && track) {
+      const clamped = Math.min(zoomMax, Math.max(zoomMin, level));
+      try {
+        await track.applyConstraints({ zoom: clamped } as MediaTrackConstraints);
+        zoomLevel = (track.getSettings() as MediaTrackSettings & { zoom?: number }).zoom ?? clamped;
+      } catch {
+        useHardwareZoom = false;
+        cssZoom = Math.min(3, Math.max(1, level));
+      }
+      return;
+    }
+
+    cssZoom = Math.min(3, Math.max(1, level));
+  }
+
+  function zoomOut() {
+    if (!cameraReady) return;
+    if (useHardwareZoom) {
+      void applyZoom(zoomLevel - zoomStep);
+    } else {
+      void applyZoom(cssZoom - 0.25);
+    }
+  }
+
+  function zoomIn() {
+    if (!cameraReady) return;
+    if (useHardwareZoom) {
+      void applyZoom(zoomLevel + zoomStep);
+    } else {
+      void applyZoom(cssZoom + 0.25);
+    }
   }
 
   async function playVideo(video: HTMLVideoElement): Promise<void> {
@@ -164,6 +193,7 @@
     }
 
     if (session !== cameraSession) return;
+    initZoom();
     cameraReady = true;
     useCamera = true;
   }
@@ -185,69 +215,29 @@
     return () => releaseStream();
   });
 
-  /** Map a point in stage coordinates to video source pixels (cover fit + pan/zoom). */
-  function mapStagePointToVideo(
-    x: number,
-    y: number,
-    video: HTMLVideoElement,
-    container: HTMLElement,
-  ): { x: number; y: number } {
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    const cw = container.clientWidth;
-    const ch = container.clientHeight;
-    const coverScale = Math.max(cw / vw, ch / vh);
-    const dispW = vw * coverScale;
-    const dispH = vh * coverScale;
-    const baseOffsetX = (cw - dispW) / 2;
-    const baseOffsetY = (ch - dispH) / 2;
-
-    const cx = cw / 2;
-    const cy = ch / 2;
-    const localX = (x - cx - panX) / zoom + cx;
-    const localY = (y - cy - panY) / zoom + cy;
-
-    return {
-      x: (localX - baseOffsetX) / coverScale,
-      y: (localY - baseOffsetY) / coverScale,
-    };
-  }
-
   function captureFrame(): HTMLCanvasElement | null {
-    if (!videoEl || !stageEl || !frameEl || !cameraReady || videoEl.videoWidth === 0) return null;
+    if (!videoEl || !cameraReady || videoEl.videoWidth === 0) return null;
 
-    const stageRect = stageEl.getBoundingClientRect();
-    const frameRect = frameEl.getBoundingClientRect();
     const vw = videoEl.videoWidth;
     const vh = videoEl.videoHeight;
-
-    const x1 = frameRect.left - stageRect.left;
-    const y1 = frameRect.top - stageRect.top;
-    const x2 = x1 + frameRect.width;
-    const y2 = y1 + frameRect.height;
-
-    const corners = [
-      mapStagePointToVideo(x1, y1, videoEl, stageEl),
-      mapStagePointToVideo(x2, y1, videoEl, stageEl),
-      mapStagePointToVideo(x2, y2, videoEl, stageEl),
-      mapStagePointToVideo(x1, y2, videoEl, stageEl),
-    ];
-
-    let minX = Math.max(0, Math.floor(Math.min(...corners.map((c) => c.x))));
-    let minY = Math.max(0, Math.floor(Math.min(...corners.map((c) => c.y))));
-    let maxX = Math.min(vw, Math.ceil(Math.max(...corners.map((c) => c.x))));
-    let maxY = Math.min(vh, Math.ceil(Math.max(...corners.map((c) => c.y))));
-
-    const cropW = maxX - minX;
-    const cropH = maxY - minY;
-    if (cropW < 48 || cropH < 48) return null;
-
     const canvas = document.createElement('canvas');
-    canvas.width = cropW;
-    canvas.height = cropH;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
-    ctx.drawImage(videoEl, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
+
+    if (!useHardwareZoom && cssZoom > 1) {
+      const sw = vw / cssZoom;
+      const sh = vh / cssZoom;
+      const sx = (vw - sw) / 2;
+      const sy = (vh - sh) / 2;
+      canvas.width = Math.round(sw);
+      canvas.height = Math.round(sh);
+      ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    } else {
+      canvas.width = vw;
+      canvas.height = vh;
+      ctx.drawImage(videoEl, 0, 0);
+    }
+
     return canvas;
   }
 
@@ -283,10 +273,7 @@
 
   async function handleCapture() {
     const canvas = captureFrame();
-    if (!canvas) {
-      errorMessage = 'Could not capture frame. Try again.';
-      return;
-    }
+    if (!canvas) return;
     await processCanvas(canvas);
   }
 
@@ -328,28 +315,16 @@
   {:else}
     <button type="button" class="scan-close" onclick={handleClose} aria-label="Close">×</button>
 
-    <div
-      class="scan-stage"
-      bind:this={stageEl}
-      class:scan-stage-pannable={zoom > 1}
-      role="group"
-      aria-label="Camera preview"
-      onpointerdown={onStagePointerDown}
-      onpointermove={onStagePointerMove}
-      onpointerup={onStagePointerUp}
-      onpointercancel={onStagePointerUp}
-    >
+    <div class="scan-stage">
       {#if useCamera}
-        <div class="scan-video-wrap">
-          <video
-            use:videoRef
-            class="scan-video"
-            style="transform: translate({panX}px, {panY}px) scale({zoom})"
-            playsinline
-            muted
-          ></video>
-        </div>
-        <div class="scan-frame" bind:this={frameEl} aria-hidden="true"></div>
+        <video
+          use:videoRef
+          class="scan-video"
+          class:scan-video-zoomed={!useHardwareZoom && cssZoom > 1}
+          style:--scan-zoom={cssZoom}
+          playsinline
+          muted
+        ></video>
       {:else}
         <div class="scan-fallback">
           <p>{errorMessage ?? 'Camera unavailable.'}</p>
@@ -367,39 +342,45 @@
 
     {#if useCamera}
       <footer class="scan-footer">
-        <label class="scan-side-btn" aria-label="Choose from gallery">
+        <label class="scan-gallery-btn" aria-label="Choose from gallery">
           <input type="file" accept="image/*" onchange={handleFileInput} hidden />
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
             <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>
           </svg>
         </label>
-
-        <div class="scan-zoom-controls">
+        <div class="scan-footer-main">
           <button
             type="button"
-            class="scan-side-btn"
+            class="scan-zoom-btn"
             onclick={zoomOut}
-            disabled={zoom <= MIN_ZOOM}
             aria-label="Zoom out"
-          >−</button>
+            disabled={!cameraReady || !canZoomOut}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>
+            </svg>
+          </button>
           <button
             type="button"
-            class="scan-side-btn"
+            class="scan-capture-btn"
+            onclick={handleCapture}
+            aria-label="Capture"
+            disabled={!cameraReady}
+          >
+            <span class="scan-capture-inner"></span>
+          </button>
+          <button
+            type="button"
+            class="scan-zoom-btn"
             onclick={zoomIn}
-            disabled={zoom >= MAX_ZOOM}
             aria-label="Zoom in"
-          >+</button>
+            disabled={!cameraReady || !canZoomIn}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>
+            </svg>
+          </button>
         </div>
-
-        <button
-          type="button"
-          class="scan-capture-btn"
-          onclick={handleCapture}
-          aria-label="Capture"
-          disabled={!cameraReady}
-        >
-          <span class="scan-capture-inner"></span>
-        </button>
       </footer>
     {/if}
   {/if}
@@ -420,7 +401,7 @@
     position: absolute;
     top: max(0.65rem, env(safe-area-inset-top));
     left: 0.75rem;
-    z-index: 4;
+    z-index: 3;
     width: 2.25rem;
     height: 2.25rem;
     border: none;
@@ -437,20 +418,6 @@
     flex: 1;
     min-height: 0;
     background: #111;
-    touch-action: none;
-  }
-
-  .scan-stage-pannable {
-    cursor: grab;
-  }
-
-  .scan-stage-pannable:active {
-    cursor: grabbing;
-  }
-
-  .scan-video-wrap {
-    position: absolute;
-    inset: 0;
     overflow: hidden;
   }
 
@@ -460,22 +427,11 @@
     object-fit: cover;
     display: block;
     background: #111;
-    transform-origin: center center;
-    will-change: transform;
   }
 
-  .scan-frame {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: min(92vw, calc(100% - 1.25rem));
-    height: min(74vh, calc(100% - 5rem));
-    border: 2px solid var(--highlight-orp);
-    border-radius: 6px;
-    pointer-events: none;
-    z-index: 2;
-    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.42);
+  .scan-video-zoomed {
+    transform: scale(var(--scan-zoom));
+    transform-origin: center center;
   }
 
   .scan-fallback {
@@ -512,42 +468,59 @@
     color: #fff;
     font-size: 0.8rem;
     text-align: center;
-    z-index: 3;
+    z-index: 2;
   }
 
   .scan-footer {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 1rem;
     padding: 1rem 1rem max(1.25rem, env(safe-area-inset-bottom));
     background: rgba(0, 0, 0, 0.4);
-    z-index: 3;
   }
 
-  .scan-side-btn {
+  .scan-footer-main {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+  }
+
+  .scan-gallery-btn {
+    position: absolute;
+    left: 1rem;
     display: flex;
     align-items: center;
     justify-content: center;
     width: 2.5rem;
     height: 2.5rem;
     border-radius: 999px;
-    border: none;
     background: rgba(255, 255, 255, 0.12);
     color: #fff;
-    font-size: 1.15rem;
-    line-height: 1;
     cursor: pointer;
   }
 
-  .scan-side-btn:disabled {
+  .scan-zoom-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border: none;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    cursor: pointer;
+    transition: opacity 0.12s ease, transform 0.12s ease;
+  }
+
+  .scan-zoom-btn:disabled {
     opacity: 0.35;
     cursor: not-allowed;
   }
 
-  .scan-zoom-controls {
-    display: flex;
-    gap: 0.35rem;
+  .scan-zoom-btn:active:not(:disabled) {
+    transform: scale(0.94);
   }
 
   .scan-capture-btn {
