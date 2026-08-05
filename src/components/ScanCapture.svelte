@@ -22,75 +22,116 @@
   let cameraReady = $state(false);
   let videoEl = $state<HTMLVideoElement | null>(null);
   let stream = $state<MediaStream | null>(null);
+  let ownsStreamTracks = false;
+  let cameraSession = 0;
 
-  function stopStream() {
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      stream = null;
-    }
+  function detachVideo() {
     if (videoEl) videoEl.srcObject = null;
     cameraReady = false;
   }
 
-  async function attachStream(video: HTMLVideoElement, mediaStream: MediaStream) {
-    video.setAttribute('playsinline', 'true');
-    video.setAttribute('webkit-playsinline', 'true');
-    video.muted = true;
-    video.srcObject = mediaStream;
-    await video.play();
-
-    if (video.videoWidth === 0) {
-      await new Promise<void>((resolve) => {
-        video.addEventListener('loadedmetadata', () => resolve(), { once: true });
-      });
+  function releaseStream() {
+    if (stream && ownsStreamTracks) {
+      stream.getTracks().forEach((track) => track.stop());
     }
-
-    cameraReady = true;
-    useCamera = true;
+    stream = null;
+    ownsStreamTracks = false;
+    detachVideo();
   }
 
-  async function startCamera(video: HTMLVideoElement) {
+  async function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
+    if (video.videoWidth > 0 && video.videoHeight > 0) return;
+    await new Promise<void>((resolve) => {
+      video.addEventListener('loadedmetadata', () => resolve(), { once: true });
+    });
+  }
+
+  async function playVideo(video: HTMLVideoElement): Promise<void> {
+    try {
+      await video.play();
+    } catch (err) {
+      const name = err instanceof DOMException ? err.name : '';
+      const message = err instanceof Error ? err.message : '';
+      if (name === 'AbortError' || message.includes('interrupted')) {
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        await video.play();
+        return;
+      }
+      throw err;
+    }
+  }
+
+  async function bindCamera(video: HTMLVideoElement) {
+    const session = ++cameraSession;
     errorMessage = null;
     cameraReady = false;
 
-    try {
-      const activeStream = stream ?? initialStream;
-      if (activeStream) {
-        stream = activeStream;
-        await attachStream(video, activeStream);
-        return;
-      }
+    let mediaStream = stream ?? initialStream;
 
+    if (!mediaStream) {
       if (!navigator.mediaDevices?.getUserMedia) {
         useCamera = false;
         return;
       }
 
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } },
-        audio: false,
-      });
-      stream = mediaStream;
-      await attachStream(video, mediaStream);
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false,
+        });
+        ownsStreamTracks = true;
+      } catch (err) {
+        if (session !== cameraSession) return;
+        await reportRuntimeError(err, 'ScanCapture.startCamera');
+        useCamera = false;
+        return;
+      }
+    } else {
+      ownsStreamTracks = false;
+    }
+
+    if (session !== cameraSession) return;
+
+    stream = mediaStream;
+    video.setAttribute('playsinline', 'true');
+    video.setAttribute('webkit-playsinline', 'true');
+    video.muted = true;
+
+    if (video.srcObject !== mediaStream) {
+      video.srcObject = mediaStream;
+    }
+
+    try {
+      await playVideo(video);
+      await waitForVideoFrame(video);
     } catch (err) {
+      if (session !== cameraSession) return;
       await reportRuntimeError(err, 'ScanCapture.startCamera');
       useCamera = false;
-      stopStream();
+      releaseStream();
+      return;
     }
+
+    if (session !== cameraSession) return;
+    cameraReady = true;
+    useCamera = true;
+  }
+
+  function videoRef(video: HTMLVideoElement) {
+    videoEl = video;
+    if (phase === 'camera') void bindCamera(video);
+
+    return {
+      destroy() {
+        cameraSession++;
+        detachVideo();
+        videoEl = null;
+      },
+    };
   }
 
   $effect(() => {
-    if (phase !== 'camera' || !videoEl) return;
-
-    let cancelled = false;
-    startCamera(videoEl).then(() => {
-      if (cancelled) stopStream();
-    });
-
-    return () => {
-      cancelled = true;
-      stopStream();
-    };
+    return () => releaseStream();
   });
 
   function captureFrame(): HTMLCanvasElement | null {
@@ -110,7 +151,7 @@
     progress = 0;
     progressStatus = 'Reading text…';
     errorMessage = null;
-    stopStream();
+    detachVideo();
 
     try {
       const text = await recognizeTextFromCanvas(canvas, {
@@ -126,6 +167,7 @@
         return;
       }
 
+      releaseStream();
       onComplete(text);
     } catch (err) {
       await reportRuntimeError(err, 'ScanCapture.processCanvas');
@@ -147,7 +189,7 @@
     if (!file) return;
 
     try {
-      stopStream();
+      releaseStream();
       const canvas = await loadImageToCanvas(file);
       await processCanvas(canvas);
     } catch (err) {
@@ -158,7 +200,7 @@
   }
 
   function handleClose() {
-    stopStream();
+    releaseStream();
     onCancel();
   }
 </script>
@@ -180,7 +222,7 @@
 
     <div class="scan-stage">
       {#if useCamera}
-        <video bind:this={videoEl} class="scan-video" playsinline muted autoplay></video>
+        <video use:videoRef class="scan-video" playsinline muted></video>
       {:else}
         <div class="scan-fallback">
           <p>{errorMessage ?? 'Camera unavailable.'}</p>
