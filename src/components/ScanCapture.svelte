@@ -14,8 +14,10 @@
 
   type Phase = 'camera' | 'processing';
 
-  const MIN_ZOOM = 1;
-  const MAX_ZOOM = 3;
+  const FRAME_WIDTH_RATIO = 0.92;
+  const FRAME_HEIGHT_RATIO = 0.78;
+  const ZOOM_MIN = 1;
+  const ZOOM_MAX = 2.5;
   const ZOOM_STEP = 0.25;
 
   let phase = $state<Phase>('camera');
@@ -24,95 +26,12 @@
   let errorMessage = $state<string | null>(null);
   let useCamera = $state(true);
   let cameraReady = $state(false);
+  let zoom = $state(1);
   let videoEl = $state<HTMLVideoElement | null>(null);
-  let viewportEl = $state<HTMLDivElement | null>(null);
   let frameEl = $state<HTMLDivElement | null>(null);
   let stream = $state<MediaStream | null>(null);
   let ownsStreamTracks = false;
   let cameraSession = 0;
-  let zoom = $state(1);
-  let panX = $state(0);
-  let panY = $state(0);
-  let isPanning = false;
-  let panStartX = 0;
-  let panStartY = 0;
-  let panOriginX = 0;
-  let panOriginY = 0;
-  let pinchStartDistance = 0;
-  let pinchStartZoom = 1;
-
-  function clampZoom(value: number): number {
-    return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
-  }
-
-  function clampPan() {
-    if (zoom <= 1) {
-      panX = 0;
-      panY = 0;
-      return;
-    }
-    const maxPan = (zoom - 1) * 120;
-    panX = Math.min(maxPan, Math.max(-maxPan, panX));
-    panY = Math.min(maxPan, Math.max(-maxPan, panY));
-  }
-
-  function zoomIn() {
-    zoom = clampZoom(zoom + ZOOM_STEP);
-    clampPan();
-  }
-
-  function zoomOut() {
-    zoom = clampZoom(zoom - ZOOM_STEP);
-    clampPan();
-  }
-
-  function touchDistance(touches: TouchList): number {
-    const dx = touches[0].clientX - touches[1].clientX;
-    const dy = touches[0].clientY - touches[1].clientY;
-    return Math.hypot(dx, dy);
-  }
-
-  function onViewportTouchStart(e: TouchEvent) {
-    if (e.touches.length === 2) {
-      pinchStartDistance = touchDistance(e.touches);
-      pinchStartZoom = zoom;
-    }
-  }
-
-  function onViewportTouchMove(e: TouchEvent) {
-    if (e.touches.length !== 2 || pinchStartDistance === 0) return;
-    e.preventDefault();
-    const scale = touchDistance(e.touches) / pinchStartDistance;
-    zoom = clampZoom(pinchStartZoom * scale);
-    clampPan();
-  }
-
-  function onViewportTouchEnd() {
-    pinchStartDistance = 0;
-  }
-
-  function onViewportPointerDown(e: PointerEvent) {
-    if (zoom <= 1 || e.pointerType === 'touch') return;
-    isPanning = true;
-    panStartX = e.clientX;
-    panStartY = e.clientY;
-    panOriginX = panX;
-    panOriginY = panY;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  }
-
-  function onViewportPointerMove(e: PointerEvent) {
-    if (!isPanning) return;
-    panX = panOriginX + (e.clientX - panStartX);
-    panY = panOriginY + (e.clientY - panStartY);
-    clampPan();
-  }
-
-  function onViewportPointerUp(e: PointerEvent) {
-    if (!isPanning) return;
-    isPanning = false;
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-  }
 
   function detachVideo() {
     if (videoEl) videoEl.srcObject = null;
@@ -223,58 +142,86 @@
     return () => releaseStream();
   });
 
-  function mapPointToVideo(sx: number, sy: number): { x: number; y: number } {
-    if (!videoEl || !viewportEl) return { x: 0, y: 0 };
+  function mapPointToVideo(
+    video: HTMLVideoElement,
+    clientX: number,
+    clientY: number,
+  ): { x: number; y: number } | null {
+    const rect = video.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
 
-    const vw = videoEl.videoWidth;
-    const vh = videoEl.videoHeight;
-    const vp = viewportEl.getBoundingClientRect();
-    const W = vp.width;
-    const H = vp.height;
-    const coverScale = Math.max(W / vw, H / vh);
-    const baseOffsetX = (W - vw * coverScale) / 2;
-    const baseOffsetY = (H - vh * coverScale) / 2;
-    const cx = W / 2;
-    const cy = H / 2;
-    const lx = sx - vp.left;
-    const ly = sy - vp.top;
-    const localX = cx + (lx - cx - panX) / zoom;
-    const localY = cy + (ly - cy - panY) / zoom;
+    const nx = (clientX - rect.left) / rect.width;
+    const ny = (clientY - rect.top) / rect.height;
+    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return null;
+
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    const elementAspect = rect.width / rect.height;
+    const videoAspect = vw / vh;
+
+    let sx = 0;
+    let sy = 0;
+    let sw = vw;
+    let sh = vh;
+
+    if (videoAspect > elementAspect) {
+      sw = vh * elementAspect;
+      sx = (vw - sw) / 2;
+    } else {
+      sh = vw / elementAspect;
+      sy = (vh - sh) / 2;
+    }
 
     return {
-      x: (localX - baseOffsetX) / coverScale,
-      y: (localY - baseOffsetY) / coverScale,
+      x: sx + nx * sw,
+      y: sy + ny * sh,
     };
   }
 
-  function captureFrame(): HTMLCanvasElement | null {
-    if (!videoEl || !frameEl || !viewportEl || !cameraReady || videoEl.videoWidth === 0) return null;
+  function cropCenterRegion(
+    source: HTMLCanvasElement,
+    widthRatio = FRAME_WIDTH_RATIO,
+    heightRatio = FRAME_HEIGHT_RATIO,
+  ): HTMLCanvasElement {
+    const sw = Math.max(1, Math.round(source.width * widthRatio));
+    const sh = Math.max(1, Math.round(source.height * heightRatio));
+    const sx = Math.round((source.width - sw) / 2);
+    const sy = Math.round((source.height - sh) / 2);
 
-    const fr = frameEl.getBoundingClientRect();
-    const corners = [
-      mapPointToVideo(fr.left, fr.top),
-      mapPointToVideo(fr.right, fr.top),
-      mapPointToVideo(fr.left, fr.bottom),
-      mapPointToVideo(fr.right, fr.bottom),
-    ];
+    const canvas = document.createElement('canvas');
+    canvas.width = sw;
+    canvas.height = sh;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return source;
+    ctx.drawImage(source, sx, sy, sw, sh, 0, 0, sw, sh);
+    return canvas;
+  }
+
+  function captureFrame(): HTMLCanvasElement | null {
+    if (!videoEl || !frameEl || !cameraReady || videoEl.videoWidth === 0) return null;
+
+    const frameRect = frameEl.getBoundingClientRect();
+    const topLeft = mapPointToVideo(videoEl, frameRect.left, frameRect.top);
+    const bottomRight = mapPointToVideo(videoEl, frameRect.right, frameRect.bottom);
+    if (!topLeft || !bottomRight) return null;
 
     const vw = videoEl.videoWidth;
     const vh = videoEl.videoHeight;
-    const x1 = Math.max(0, Math.min(...corners.map((p) => p.x)));
-    const y1 = Math.max(0, Math.min(...corners.map((p) => p.y)));
-    const x2 = Math.min(vw, Math.max(...corners.map((p) => p.x)));
-    const y2 = Math.min(vh, Math.max(...corners.map((p) => p.y)));
-    const sw = Math.floor(x2 - x1);
-    const sh = Math.floor(y2 - y1);
-
-    if (sw < 12 || sh < 12) return null;
+    const x1 = Math.max(0, Math.min(topLeft.x, bottomRight.x));
+    const y1 = Math.max(0, Math.min(topLeft.y, bottomRight.y));
+    const x2 = Math.min(vw, Math.max(topLeft.x, bottomRight.x));
+    const y2 = Math.min(vh, Math.max(topLeft.y, bottomRight.y));
+    const sw = Math.max(1, Math.round(x2 - x1));
+    const sh = Math.max(1, Math.round(y2 - y1));
+    const sx = Math.round(x1);
+    const sy = Math.round(y1);
 
     const canvas = document.createElement('canvas');
     canvas.width = sw;
     canvas.height = sh;
     const ctx = canvas.getContext('2d');
     if (!ctx) return null;
-    ctx.drawImage(videoEl, Math.floor(x1), Math.floor(y1), sw, sh, 0, 0, sw, sh);
+    ctx.drawImage(videoEl, sx, sy, sw, sh, 0, 0, sw, sh);
     return canvas;
   }
 
@@ -294,7 +241,7 @@
       });
 
       if (!text.replace(/\s+/g, ' ').trim()) {
-        errorMessage = 'No text found in frame.';
+        errorMessage = 'No text found.';
         phase = 'camera';
         return;
       }
@@ -310,10 +257,7 @@
 
   async function handleCapture() {
     const canvas = captureFrame();
-    if (!canvas) {
-      errorMessage = 'Could not capture frame.';
-      return;
-    }
+    if (!canvas) return;
     await processCanvas(canvas);
   }
 
@@ -325,8 +269,8 @@
 
     try {
       releaseStream();
-      const canvas = await loadImageToCanvas(file);
-      await processCanvas(canvas);
+      const full = await loadImageToCanvas(file);
+      await processCanvas(cropCenterRegion(full));
     } catch (err) {
       await reportRuntimeError(err, 'ScanCapture.handleFileInput');
       errorMessage = 'Could not load image.';
@@ -337,6 +281,14 @@
   function handleClose() {
     releaseStream();
     onCancel();
+  }
+
+  function zoomIn() {
+    zoom = Math.min(ZOOM_MAX, zoom + ZOOM_STEP);
+  }
+
+  function zoomOut() {
+    zoom = Math.max(ZOOM_MIN, zoom - ZOOM_STEP);
   }
 </script>
 
@@ -357,47 +309,29 @@
 
     <div class="scan-stage">
       {#if useCamera}
-        <div
-          class="scan-viewport"
-          class:is-pannable={zoom > 1}
-          bind:this={viewportEl}
-          role="application"
-          aria-label="Camera preview. Pinch to zoom."
-          ontouchstart={onViewportTouchStart}
-          ontouchmove={onViewportTouchMove}
-          ontouchend={onViewportTouchEnd}
-          ontouchcancel={onViewportTouchEnd}
-          onpointerdown={onViewportPointerDown}
-          onpointermove={onViewportPointerMove}
-          onpointerup={onViewportPointerUp}
-          onpointercancel={onViewportPointerUp}
-        >
-          <div
-            class="scan-video-wrap"
-            style="transform: translate({panX}px, {panY}px) scale({zoom})"
-          >
+        <div class="scan-viewport">
+          <div class="scan-video-wrap" style="transform: scale({zoom})">
             <video use:videoRef class="scan-video" playsinline muted></video>
           </div>
-
           <div class="scan-frame-overlay" aria-hidden="true">
-            <div class="scan-frame-mask scan-frame-mask-top"></div>
-            <div class="scan-frame-row">
-              <div class="scan-frame-mask scan-frame-mask-side"></div>
-              <div class="scan-frame-window" bind:this={frameEl}>
-                <span class="scan-frame-corner scan-frame-corner-tl"></span>
-                <span class="scan-frame-corner scan-frame-corner-tr"></span>
-                <span class="scan-frame-corner scan-frame-corner-bl"></span>
-                <span class="scan-frame-corner scan-frame-corner-br"></span>
-              </div>
-              <div class="scan-frame-mask scan-frame-mask-side"></div>
-            </div>
-            <div class="scan-frame-mask scan-frame-mask-bottom"></div>
+            <div class="scan-frame" bind:this={frameEl}></div>
           </div>
-        </div>
-
-        <div class="scan-zoom-controls">
-          <button type="button" class="scan-zoom-btn" onclick={zoomIn} aria-label="Zoom in" disabled={zoom >= MAX_ZOOM}>+</button>
-          <button type="button" class="scan-zoom-btn" onclick={zoomOut} aria-label="Zoom out" disabled={zoom <= MIN_ZOOM}>−</button>
+          <div class="scan-zoom-controls">
+            <button
+              type="button"
+              class="scan-zoom-btn"
+              onclick={zoomIn}
+              disabled={zoom >= ZOOM_MAX}
+              aria-label="Zoom in"
+            >+</button>
+            <button
+              type="button"
+              class="scan-zoom-btn"
+              onclick={zoomOut}
+              disabled={zoom <= ZOOM_MIN}
+              aria-label="Zoom out"
+            >−</button>
+          </div>
         </div>
       {:else}
         <div class="scan-fallback">
@@ -474,21 +408,13 @@
     position: absolute;
     inset: 0;
     overflow: hidden;
-    touch-action: none;
-  }
-
-  .scan-viewport.is-pannable {
-    cursor: grab;
-  }
-
-  .scan-viewport.is-pannable:active {
-    cursor: grabbing;
   }
 
   .scan-video-wrap {
     width: 100%;
     height: 100%;
     transform-origin: center center;
+    transition: transform 0.15s ease;
     will-change: transform;
   }
 
@@ -504,94 +430,45 @@
     position: absolute;
     inset: 0;
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     pointer-events: none;
     z-index: 2;
   }
 
-  .scan-frame-mask {
-    background: rgba(0, 0, 0, 0.42);
-  }
-
-  .scan-frame-mask-top {
-    flex: 0.9;
-  }
-
-  .scan-frame-mask-bottom {
-    flex: 1.1;
-  }
-
-  .scan-frame-row {
-    display: flex;
-    height: 46%;
-    min-height: 8rem;
-    max-height: 70%;
-  }
-
-  .scan-frame-mask-side {
-    flex: 0.06;
-  }
-
-  .scan-frame-window {
-    flex: 1;
-    position: relative;
-    border: 2px solid rgba(255, 255, 255, 0.85);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
-  }
-
-  .scan-frame-corner {
-    position: absolute;
-    width: 1.1rem;
-    height: 1.1rem;
-    border-color: var(--highlight-orp);
-    border-style: solid;
-  }
-
-  .scan-frame-corner-tl {
-    top: -2px;
-    left: -2px;
-    border-width: 3px 0 0 3px;
-  }
-
-  .scan-frame-corner-tr {
-    top: -2px;
-    right: -2px;
-    border-width: 3px 3px 0 0;
-  }
-
-  .scan-frame-corner-bl {
-    bottom: -2px;
-    left: -2px;
-    border-width: 0 0 3px 3px;
-  }
-
-  .scan-frame-corner-br {
-    bottom: -2px;
-    right: -2px;
-    border-width: 0 3px 3px 0;
+  .scan-frame {
+    width: 92%;
+    height: 78%;
+    max-height: calc(100% - 3.5rem);
+    border: 2px solid var(--highlight-orp);
+    border-radius: 10px;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
   }
 
   .scan-zoom-controls {
     position: absolute;
-    right: 0.75rem;
+    right: 0.65rem;
     top: 50%;
     transform: translateY(-50%);
-    z-index: 3;
     display: flex;
     flex-direction: column;
     gap: 0.45rem;
+    z-index: 3;
   }
 
   .scan-zoom-btn {
     width: 2.35rem;
     height: 2.35rem;
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    border: none;
     border-radius: 999px;
     background: rgba(0, 0, 0, 0.5);
     color: #fff;
-    font-size: 1.15rem;
+    font-size: 1.2rem;
     line-height: 1;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .scan-zoom-btn:disabled {
