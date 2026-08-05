@@ -5,7 +5,7 @@
  * Usage: npm run generate:icons
  */
 import sharp from 'sharp';
-import { existsSync, mkdirSync, copyFileSync } from 'fs';
+import { existsSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -33,7 +33,7 @@ async function pickSourcePath() {
   return null;
 }
 
-const kestrelAsset = resolve(publicDir, 'kestrel.png');
+
 const sourcePath = await pickSourcePath();
 
 if (!sourcePath) {
@@ -58,19 +58,9 @@ for (const size of iconSizes) {
 }
 
 await sharp(sourcePath)
-  .resize(32, 32, { fit: 'contain', background: iconBg })
+  .resize(48, 48, { fit: 'contain', background: iconBg })
   .png({ compressionLevel: 9 })
   .toFile(resolve(publicDir, 'favicon.png'));
-console.log('  favicon.png');
-
-if (existsSync(kestrelAsset)) {
-  try {
-    const meta = await sharp(kestrelAsset).metadata();
-    if (!meta.format) throw new Error('not raster');
-  } catch {
-    copyFileSync(kestrelAsset, resolve(publicDir, 'favicon.ico'));
-    console.log('  favicon.ico (from ICO kestrel.png)');
-  }
-}
+console.log('  favicon.png (48x48)');
 
 console.log('Done.');

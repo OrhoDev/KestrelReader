@@ -3,7 +3,7 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
-    { "source": "/favicon.ico", "destination": "/favicon.png" }
+    { "source": "/favicon.ico", "destination": "/icons/icon48.png" }
   ],
   "headers": [
     {
