@@ -1,4 +1,4 @@
-import { Readability } from '@mozilla/readability';
+import { extractArticleFromHtml } from './articleExtract';
 
 export interface UrlArticle {
   title: string;
@@ -6,38 +6,73 @@ export interface UrlArticle {
   text: string;
 }
 
-export async function fetchArticleFromUrl(url: string): Promise<UrlArticle> {
-  const trimmed = url.trim();
+function parseTargetUrl(raw: string): URL {
+  const trimmed = raw.trim();
   if (!trimmed) throw new Error('Enter a URL.');
 
-  let parsedUrl: URL;
   try {
-    parsedUrl = new URL(trimmed);
-  } catch {
+    const parsed = new URL(trimmed);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      throw new Error('Only http and https URLs are supported.');
+    }
+    return parsed;
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Only http')) throw error;
     throw new Error('That URL does not look valid.');
   }
+}
 
-  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-    throw new Error('Only http and https URLs are supported.');
+function isExtensionContext(): boolean {
+  return typeof window !== 'undefined' && window.location.protocol === 'chrome-extension:';
+}
+
+async function fetchViaApi(url: string): Promise<UrlArticle> {
+  const response = await fetch(`/api/fetch-article?url=${encodeURIComponent(url)}`);
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const message = typeof payload.error === 'string' ? payload.error : 'Could not fetch article.';
+    throw new Error(message);
   }
 
+  if (
+    typeof payload.title !== 'string' ||
+    typeof payload.author !== 'string' ||
+    typeof payload.text !== 'string'
+  ) {
+    throw new Error('Could not fetch article.');
+  }
+
+  return payload;
+}
+
+async function fetchDirect(url: string): Promise<UrlArticle> {
+  const parsedUrl = parseTargetUrl(url);
   const response = await fetch(parsedUrl.href);
+
   if (!response.ok) {
-    throw new Error('Could not fetch page (' + response.status + '). Try the extension.');
+    throw new Error(`Could not fetch page (${response.status}).`);
   }
 
   const html = await response.text();
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  const article = new Readability(doc).parse();
-  const text = article?.textContent?.trim();
+  return extractArticleFromHtml(html, parsedUrl.href);
+}
 
-  if (!text || text.length < 40) {
-    throw new Error('No article text on that page. Try the extension.');
+export async function fetchArticleFromUrl(url: string): Promise<UrlArticle> {
+  parseTargetUrl(url);
+
+  if (isExtensionContext()) {
+    throw new Error('Open the page in your browser, then use the Kestrel extension on that tab.');
   }
 
-  return {
-    title: article?.title?.trim() || parsedUrl.hostname,
-    author: article?.byline?.trim() || parsedUrl.hostname,
-    text,
-  };
+  try {
+    return await fetchViaApi(url);
+  } catch (apiError) {
+    try {
+      return await fetchDirect(url);
+    } catch {
+      if (apiError instanceof Error) throw apiError;
+      throw new Error('Could not fetch article.');
+    }
+  }
 }

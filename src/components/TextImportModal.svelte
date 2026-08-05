@@ -18,7 +18,7 @@
   const hint = $derived(
     mode === 'paste'
       ? 'Paste text to read with RSVP.'
-      : 'Enter a URL. Some sites block fetching. Use the extension if it fails.',
+      : 'Enter an article URL. Kestrel fetches the page and extracts readable text.',
   );
 
   async function handleSubmit() {

@@ -1,11 +1,50 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
+
+function articleApiPlugin(): Plugin {
+  return {
+    name: 'article-api',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (!req.url?.startsWith('/api/fetch-article')) {
+          next();
+          return;
+        }
+
+        if (req.method !== 'GET') {
+          res.statusCode = 405;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: 'Method not allowed.' }));
+          return;
+        }
+
+        const requestUrl = new URL(req.url, 'http://localhost');
+        const target = requestUrl.searchParams.get('url') ?? '';
+
+        try {
+          const { fetchArticleFromUrl } = await import('../lib/fetchArticle.mjs');
+          const article = await fetchArticleFromUrl(target);
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          res.setHeader('Cache-Control', 'no-store');
+          res.end(JSON.stringify(article));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Could not fetch article.';
+          res.statusCode = 422;
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ error: message }));
+        }
+      });
+    },
+  };
+}
 
 export default defineConfig({
   plugins: [
     svelte(),
     tailwindcss(),
+    articleApiPlugin(),
   ],
   build: {
     outDir: 'dist',
