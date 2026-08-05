@@ -18,6 +18,7 @@
   let dragDepth = 0;
   let deleteConfirmId = $state<string | null>(null);
   let showScanner = $state(false);
+  let scannerStream = $state<MediaStream | null>(null);
   let textImportMode = $state<'paste' | 'url' | null>(null);
   let errorMessage = $state<string | null>(null);
   let searchQuery = $state('');
@@ -255,8 +256,35 @@
     return `Scan ${now.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
   }
 
-  async function handleScanComplete(text: string) {
+  function releaseScannerStream() {
+    if (scannerStream) {
+      scannerStream.getTracks().forEach((track) => track.stop());
+      scannerStream = null;
+    }
+  }
+
+  async function openScanner() {
+    releaseScannerStream();
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        scannerStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' } },
+          audio: false,
+        });
+      }
+    } catch {
+      scannerStream = null;
+    }
+    showScanner = true;
+  }
+
+  function closeScanner() {
     showScanner = false;
+    releaseScannerStream();
+  }
+
+  async function handleScanComplete(text: string) {
+    closeScanner();
     isProcessing = true;
     errorMessage = null;
     try {
@@ -357,12 +385,12 @@
         type="button"
         class="card card-import card-interactive"
         style="min-height:200px;padding:1.5rem;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;"
-        onclick={() => (showScanner = true)}
+        onclick={() => void openScanner()}
         disabled={isProcessing}
       >
         <svg style="width:2rem;height:2rem;color:var(--highlight-orp);margin-bottom:0.75rem;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
         <span style="font-size:0.85rem;font-weight:600;color:var(--text-primary);">Scan Text</span>
-        <span style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.4rem;line-height:1.5;">Page or line photo</span>
+        <span style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.4rem;line-height:1.5;">Photo of a page</span>
       </button>
     {/if}
 
@@ -479,7 +507,11 @@
   {#await import('./ScanCapture.svelte')}
     <div class="scan-boot" role="status">Loading scanner…</div>
   {:then { default: ScanCapture }}
-    <ScanCapture onComplete={handleScanComplete} onCancel={() => (showScanner = false)} />
+    <ScanCapture
+      initialStream={scannerStream}
+      onComplete={handleScanComplete}
+      onCancel={closeScanner}
+    />
   {/await}
 {/if}
 
