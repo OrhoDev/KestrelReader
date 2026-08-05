@@ -1,34 +1,36 @@
 ﻿# KestrelReader
 
-KestrelReader is a local-first Rapid Serial Visual Presentation reader designed to make reading digital files easier and less distracting. It serves words to a fixed point on your screen sequentially, allowing you to read without the fatigue of moving your eyes across a page. This project is built primarily as a focused, personal utility for readers who need a quiet environment to process text.
+KestrelReader shows text one word at a time at a fixed spot on screen (RSVP). You read without moving your eyes across the page.
 
-If you want to use KestrelReader without building it from the source code, the live web application is hosted at [kestrel-reader.vercel.app](https://kestrel-reader.vercel.app/). You can also find compiled browser extension zip files on our Releases page.
+Live app: [kestrel-reader.vercel.app](https://kestrel-reader.vercel.app/). Extension builds are on the Releases page.
 
-## Core Philosophy
+## How it works
 
-KestrelReader is built on the idea that reading software should be a quiet utility rather than a noisy service. It does not require you to create an account, does not track your reading habits, and does not send your documents to external servers. All text processing, including PDF and EPUB parsing, happens entirely on your local machine.
+No account. No cloud uploads. Parsing and storage stay on your device.
 
-## Using the Application
+## Use it
 
-To use KestrelReader directly in your browser, simply visit the live web application. If you prefer to install it on your device, use your browser's native install option to add the PWA to your home screen or desktop.
+Open the web app in your browser. To install it, use your browser's install option for the PWA.
 
-To use the browser extension, download the compiled zip file from the Releases page on GitHub and unpack it on your computer. Open your browser's extension management page, enable developer mode, select the option to load an unpacked extension, and choose the unzipped folder.
+For the extension: download the zip from Releases, unzip it, open your browser's extensions page, enable developer mode, and load the unpacked folder.
 
-## Getting Started with Development
+## Development
 
-To set up KestrelReader locally from this source code, you will need Node.js installed on your computer. Rust is only required if you want to compile and build the native desktop application.
+You need Node.js. Rust is only required for the Tauri desktop build.
 
-Start by cloning this repository to your machine. Once cloned, navigate into the project directory and run `npm install`
-From there, run `npm run dev`. 
+```bash
+npm install
+npm run dev
+```
 
-To compile the browser extension, run `npm run build:extension`. You can load this `dist-extension` folder directly into your browser via developer mode.
+Extension: `npm run build:extension`, then load `dist-extension` in developer mode.
 
-To compile the native desktop application, ensure you have Rust installed and run `npx tauri build` from the project root.
+Desktop: `npx tauri build` (requires Rust).
 
 ## Privacy
 
-KestrelReader collects no personal data. All document parsing and storage happens on your device. See [PRIVACY.md](PRIVACY.md) for the full privacy policy.
+No personal data collected. See [PRIVACY.md](PRIVACY.md).
 
 ## License
 
-This project is licensed under the MIT License. You are free to use, modify, and distribute the code as you see fit.
+MIT

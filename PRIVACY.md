@@ -1,7 +1,9 @@
 # Privacy Policy
 
-Effective Date: May 26, 2026
+Effective: May 26, 2026
 
-KestrelReader is a local-first utility that does not collect, store, or transmit any personal data. There are no user accounts, no tracking cookies, and no analytics scripts of any kind. All text processing, including PDF and EPUB parsing, happens entirely on your local device.
+KestrelReader does not collect, store, or transmit personal data. There are no accounts, tracking cookies, or analytics. PDF, EPUB, and other parsing runs on your device.
 
-The browser extension requests only the minimum permissions necessary to extract text from your active browser tab when you click the icon, and your reading progress is saved locally on your own machine. If you have any questions, please feel free to open a public issue on our GitHub repository.
+The browser extension reads the active tab only when you click the icon. Reading progress is stored locally.
+
+Questions: open an issue on GitHub.

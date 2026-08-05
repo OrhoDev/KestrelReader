@@ -5,6 +5,19 @@
     type FocusConfig,
     type VisualTint,
   } from '../core/focusConfig';
+  import {
+    loadRsvpConfig,
+    saveRsvpConfig,
+    DEFAULT_RSVP_CONFIG,
+    type RsvpConfig,
+  } from '../core/rsvpConfig';
+  import {
+    getReadingStatsSummary,
+    formatReadingTime,
+    type ReadingStatsSummary,
+  } from '../core/statistics';
+  import { exportLibraryBackup, importLibraryBackup } from '../core/libraryBackup';
+  import { reportRuntimeError } from '../core/diagnostics';
 
   let {
     onBack,
@@ -22,10 +35,15 @@
 
   let baseWpm = $state(300);
   let fontSize = $state(2.2);
+  let rsvpConfig = $state<RsvpConfig>({ ...DEFAULT_RSVP_CONFIG });
+  let stats = $state<ReadingStatsSummary | null>(null);
+  let backupMessage = $state<string | null>(null);
 
   $effect(() => {
-    db.settings.get('baseWpm').then(s => { if (s) baseWpm = s.value; });
-    db.settings.get('fontSize').then(s => { if (s) fontSize = s.value; });
+    db.settings.get('baseWpm').then((s) => { if (s) baseWpm = s.value; });
+    db.settings.get('fontSize').then((s) => { if (s) fontSize = s.value; });
+    loadRsvpConfig().then((c) => { rsvpConfig = c; });
+    getReadingStatsSummary().then((s) => { stats = s; });
   });
 
   function saveWpm() {
@@ -40,6 +58,38 @@
     const next = { ...focusConfig, ...patch };
     await saveFocusConfig(next);
     onFocusConfigChange(next);
+  }
+
+  async function updateRsvpConfig(patch: Partial<RsvpConfig>) {
+    const next = { ...rsvpConfig, ...patch };
+    rsvpConfig = next;
+    await saveRsvpConfig(next);
+  }
+
+  async function handleExport() {
+    backupMessage = null;
+    try {
+      await exportLibraryBackup();
+      backupMessage = 'Backup downloaded.';
+    } catch (err) {
+      await reportRuntimeError(err, 'Settings.export');
+      backupMessage = 'Export failed.';
+    }
+  }
+
+  async function handleImportFile(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    backupMessage = null;
+    try {
+      const count = await importLibraryBackup(file);
+      backupMessage = `Imported ${count} book${count === 1 ? '' : 's'}.`;
+    } catch (err) {
+      await reportRuntimeError(err, 'Settings.import');
+      backupMessage = err instanceof Error ? err.message : 'Import failed.';
+    }
   }
 
   const themes: { key: 'falcon' | 'sand' | 'steppe'; label: string; desc: string; swatch: string }[] = [
@@ -111,11 +161,11 @@
       ">
         K<span style="color:var(--highlight-orp);">e</span>strel
       </div>
-      <p style="margin:0.5rem 0 0 0;font-size:0.7rem;color:var(--text-secondary);text-align:center;">Preview (ORP highlighted)</p>
+      <p style="margin:0.5rem 0 0 0;font-size:0.7rem;color:var(--text-secondary);text-align:center;">Preview with ORP highlight</p>
     </div>
 
     <div class="card" style="padding:1.5rem;margin-bottom:1.25rem;">
-      <h2 style="margin:0 0 1rem 0;font-size:1rem;font-weight:600;color:var(--text-primary);">Focus &amp; Comfort</h2>
+      <h2 style="margin:0 0 1rem 0;font-size:1rem;font-weight:600;color:var(--text-primary);">Focus</h2>
 
       <div class="focus-setting-list">
         <label class="focus-toggle">
@@ -126,7 +176,7 @@
           />
           <span>
             <strong>Bold starting letters</strong>
-            <small>Emphasize the opening letters of each word.</small>
+            <small>Bold the first letters of each word.</small>
           </span>
         </label>
 
@@ -137,15 +187,15 @@
             onchange={(e) => updateFocusConfig({ phraseChunking: e.currentTarget.checked })}
           />
           <span>
-            <strong>Semantic Phrase Chunking</strong>
-            <small>Group tiny connector words with the next word.</small>
+            <strong>Phrase chunking</strong>
+            <small>Pair short words with the next word.</small>
           </span>
         </label>
 
       </div>
 
       <div style="margin-top:1.25rem;">
-        <p style="margin:0 0 0.75rem 0;font-size:0.82rem;color:var(--text-secondary);">Visual Stress Tint</p>
+        <p style="margin:0 0 0.75rem 0;font-size:0.82rem;color:var(--text-secondary);">Background tint</p>
         <div class="focus-tint-grid">
           {#each tintOptions as tint}
             <button
@@ -158,6 +208,75 @@
           {/each}
         </div>
       </div>
+    </div>
+
+    {#if stats}
+      <div class="card" style="padding:1.5rem;margin-bottom:1.25rem;">
+        <h2 style="margin:0 0 1rem 0;font-size:1rem;font-weight:600;color:var(--text-primary);">Reading stats</h2>
+        <div class="settings-stats-grid">
+          <div><span class="settings-stat-value">{stats.wordsToday.toLocaleString()}</span><span class="settings-stat-label">words today</span></div>
+          <div><span class="settings-stat-value">{stats.wordsWeek.toLocaleString()}</span><span class="settings-stat-label">words this week</span></div>
+          <div><span class="settings-stat-value">{formatReadingTime(stats.secondsToday)}</span><span class="settings-stat-label">reading today</span></div>
+          <div><span class="settings-stat-value">{stats.streakDays}</span><span class="settings-stat-label">day streak</span></div>
+        </div>
+      </div>
+    {/if}
+
+    <div class="card" style="padding:1.5rem;margin-bottom:1.25rem;">
+      <h2 style="margin:0 0 1rem 0;font-size:1rem;font-weight:600;color:var(--text-primary);">RSVP timing</h2>
+
+      <label class="focus-toggle" style="margin-bottom:1rem;">
+        <input
+          type="checkbox"
+          checked={rsvpConfig.rampUpEnabled}
+          onchange={(e) => updateRsvpConfig({ rampUpEnabled: e.currentTarget.checked })}
+        />
+        <span>
+          <strong>Ramp up speed</strong>
+          <small>Start below target WPM and increase.</small>
+        </span>
+      </label>
+
+      <div style="margin-bottom:1rem;">
+        <div style="display:flex;justify-content:space-between;font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.35rem;">
+          <span>Sentence pause</span>
+          <span>{rsvpConfig.sentencePause.toFixed(1)}×</span>
+        </div>
+        <input type="range" min="0" max="3" step="0.1" bind:value={rsvpConfig.sentencePause} onchange={() => updateRsvpConfig({ sentencePause: rsvpConfig.sentencePause })} style="width:100%;accent-color:var(--highlight-orp);" />
+      </div>
+
+      <div style="margin-bottom:1rem;">
+        <div style="display:flex;justify-content:space-between;font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.35rem;">
+          <span>Comma pause</span>
+          <span>{rsvpConfig.commaPause.toFixed(1)}×</span>
+        </div>
+        <input type="range" min="0" max="2" step="0.1" bind:value={rsvpConfig.commaPause} onchange={() => updateRsvpConfig({ commaPause: rsvpConfig.commaPause })} style="width:100%;accent-color:var(--highlight-orp);" />
+      </div>
+
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.35rem;">
+          <span>Long word pause</span>
+          <span>{rsvpConfig.longWordPause.toFixed(1)}×</span>
+        </div>
+        <input type="range" min="0" max="1" step="0.05" bind:value={rsvpConfig.longWordPause} onchange={() => updateRsvpConfig({ longWordPause: rsvpConfig.longWordPause })} style="width:100%;accent-color:var(--highlight-orp);" />
+      </div>
+    </div>
+
+    <div class="card" style="padding:1.5rem;margin-bottom:1.25rem;">
+      <h2 style="margin:0 0 0.75rem 0;font-size:1rem;font-weight:600;color:var(--text-primary);">Library backup</h2>
+      <p style="margin:0 0 1rem;font-size:0.82rem;line-height:1.55;color:var(--text-secondary);">
+        Export library and settings as JSON. EPUB and PDF files are not included. Import those again separately.
+      </p>
+      <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+        <button type="button" class="btn-flat" onclick={handleExport}>Download backup</button>
+        <label class="btn-flat" style="cursor:pointer;">
+          Import backup
+          <input type="file" accept="application/json,.json" hidden onchange={handleImportFile} />
+        </label>
+      </div>
+      {#if backupMessage}
+        <p style="margin:0.75rem 0 0;font-size:0.82rem;color:var(--text-secondary);">{backupMessage}</p>
+      {/if}
     </div>
 
     <div class="card" style="padding:1.5rem;margin-bottom:1.25rem;">
@@ -188,3 +307,26 @@
 
   </div>
 </div>
+
+<style>
+  .settings-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+
+  .settings-stat-value {
+    display: block;
+    font-family: 'Fira Code', monospace;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--highlight-orp);
+  }
+
+  .settings-stat-label {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+  }
+</style>

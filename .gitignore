@@ -17,6 +17,8 @@ Thumbs.db
 desktop.ini
 .cursor/
 
+public/ocr/
+
 
 *.local
 *.log

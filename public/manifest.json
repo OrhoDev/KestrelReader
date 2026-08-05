@@ -2,7 +2,7 @@
   "id": "/",
   "name": "KestrelReader",
   "short_name": "Kestrel",
-  "description": "Local-first, privacy-respecting RSVP speed reading.",
+  "description": "RSVP speed reader for EPUB, PDF, and camera scans. No account.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -10,7 +10,7 @@
   "background_color": "#1E1916",
   "theme_color": "#1E1916",
   "lang": "en",
-  "categories": ["books", "productivity"],
+  "categories": ["books", "productivity", "education"],
   "icons": [
     {
       "src": "/icons/icon192.png",

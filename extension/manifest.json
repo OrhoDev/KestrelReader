@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "KestrelReader",
   "version": "1.0.0",
-  "description": "Privacy-respecting, cross-platform RSVP reading extension.",
+  "description": "RSVP reader extension. Local storage. No account.",
   "permissions": [
     "activeTab",
     "storage",

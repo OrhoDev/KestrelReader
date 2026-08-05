@@ -11,7 +11,15 @@
   } from '../core/pacer';
   import { type FocusConfig } from '../core/focusConfig';
   import { saveLocalProgress, loadLocalProgress } from '../core/progress';
+  import {
+    loadRsvpConfig,
+    effectiveWpm,
+    DEFAULT_RSVP_CONFIG,
+    type RsvpConfig,
+  } from '../core/rsvpConfig';
+  import { recordReading } from '../core/statistics';
   import ContextPanel from './ContextPanel.svelte';
+  import ShortcutsHelp from './ShortcutsHelp.svelte';
 
   let { bookId, focusConfig, onBack } = $props<{
     bookId: string;
@@ -25,6 +33,9 @@
   let rawOffset = $state(0);
   let baseWpm = $state(300);
   let fontSize = $state(2.2);
+  let rsvpConfig = $state<RsvpConfig>({ ...DEFAULT_RSVP_CONFIG });
+  let showShortcuts = $state(false);
+  let pendingWords = $state(0);
 
   let playbackTokens = $derived(
     book ? buildPlaybackTokens(book.tokens, focusConfig.phraseChunking) : [],
@@ -128,6 +139,9 @@
     db.settings.get('fontSize').then((s) => {
       if (s) fontSize = s.value;
     });
+    loadRsvpConfig().then((config) => {
+      rsvpConfig = config;
+    });
   });
 
   $effect(() => {
@@ -142,12 +156,35 @@
     db.settings.put({ key: 'baseWpm', value: baseWpm });
   }
 
+  function countWordsInToken(token: PlaybackToken): number {
+    return token.chunkWords?.length ?? 1;
+  }
+
+  async function flushReadingStats(seconds = 0) {
+    if (pendingWords <= 0 && seconds <= 0) return;
+    await recordReading(pendingWords, seconds);
+    pendingWords = 0;
+  }
+
   function handleGlobalKeyDown(e: KeyboardEvent) {
+    if (showShortcuts && e.key === 'Escape') {
+      showShortcuts = false;
+      e.preventDefault();
+      return;
+    }
+    if (e.key === '?') {
+      showShortcuts = !showShortcuts;
+      e.preventDefault();
+      return;
+    }
     if (e.key === ' ') {
       togglePlay();
       e.preventDefault();
     } else if (e.key === 'ArrowLeft') {
       rewind();
+      e.preventDefault();
+    } else if (e.key === 'ArrowRight') {
+      forward();
       e.preventDefault();
     } else if (e.key === 'ArrowUp') {
       updateWpm(baseWpm + 25);
@@ -160,8 +197,10 @@
 
   $effect(() => {
     if (isPlaying && currentToken) {
-      const delay = resolvePlaybackDelay(currentToken, baseWpm);
+      const wpm = effectiveWpm(baseWpm, playbackOffset, rsvpConfig);
+      const delay = resolvePlaybackDelay(currentToken, wpm, rsvpConfig);
       const timeout = setTimeout(() => {
+        pendingWords += countWordsInToken(currentToken);
         if (playbackTokens.length > 0 && playbackOffset < playbackTokens.length - 1) {
           playbackOffset += 1;
           const next = playbackTokens[playbackOffset];
@@ -172,6 +211,14 @@
       }, delay);
       return () => clearTimeout(timeout);
     }
+  });
+
+  $effect(() => {
+    if (!isPlaying) return;
+    const interval = setInterval(() => {
+      void flushReadingStats(10);
+    }, 10000);
+    return () => clearInterval(interval);
   });
 
   $effect(() => {
@@ -193,6 +240,7 @@
   function togglePlay() {
     isPlaying = !isPlaying;
     if (!isPlaying) {
+      void flushReadingStats();
       void saveLocalProgress(bookId, rawOffset);
     }
   }
@@ -201,6 +249,17 @@
     playbackOffset = Math.max(0, playbackOffset - 10);
     const token = playbackTokens[playbackOffset];
     if (token) rawOffset = rawOffsetFromPlayback(token);
+  }
+
+  function forward() {
+    playbackOffset = Math.min(playbackTokens.length - 1, playbackOffset + 10);
+    const token = playbackTokens[playbackOffset];
+    if (token) rawOffset = rawOffsetFromPlayback(token);
+  }
+
+  function jumpToChapter(startOffset: number) {
+    selectRawOffset(startOffset);
+    isPlaying = false;
   }
 
   function selectRawOffset(nextRawOffset: number) {
@@ -243,6 +302,15 @@
     e.stopPropagation();
     contextExpanded = false;
   }
+
+  let activeChapterStart = $derived.by(() => {
+    if (!book?.chapters?.length) return 0;
+    let start = book.chapters[0].startOffset;
+    for (const chapter of book.chapters) {
+      if (activeRawOffset >= chapter.startOffset) start = chapter.startOffset;
+    }
+    return start;
+  });
 
   let bottomControlsStyle = $derived(
     isCompact && controlsVisible && !contextExpanded ? 'bottom: 2.5rem;' : '',
@@ -336,7 +404,33 @@
         {/if}
       </div>
 
-      <div></div>
+      <div class="reader-top-actions">
+        {#if book?.chapters && book.chapters.length > 1}
+          <select
+            class="reader-chapter-select"
+            aria-label="Jump to chapter"
+            value={activeChapterStart}
+            onchange={(e) => {
+              e.stopPropagation();
+              const value = parseInt((e.currentTarget as HTMLSelectElement).value, 10);
+              if (!Number.isNaN(value)) jumpToChapter(value);
+            }}
+            onclick={(e) => e.stopPropagation()}
+          >
+            {#each book.chapters as chapter}
+              <option value={chapter.startOffset}>{chapter.title}</option>
+            {/each}
+          </select>
+        {/if}
+        <button
+          type="button"
+          class="btn-flat reader-help-btn"
+          onclick={(e) => { e.stopPropagation(); showShortcuts = true; }}
+          onkeydown={(e) => e.stopPropagation()}
+          aria-label="Keyboard shortcuts"
+          title="Keyboard shortcuts (?)"
+        >?</button>
+      </div>
     </div>
 
     <div
@@ -426,6 +520,19 @@
           {/if}
         </button>
 
+        <button
+          class="btn-flat btn-lg"
+          onclick={(e) => {
+            e.stopPropagation();
+            forward();
+          }}
+          onkeydown={(e) => e.stopPropagation()}
+          title="Skip forward 10 words (→)"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 19 22 12 13 5 13 19"/><polygon points="2 19 11 12 2 5 2 19"/></svg>
+          Skip
+        </button>
+
         <div class="control-group" role="group" aria-label="WPM control">
           <button
             class="btn-step"
@@ -455,3 +562,33 @@
     </div>
   </div>
 </div>
+
+{#if showShortcuts}
+  <ShortcutsHelp onClose={() => (showShortcuts = false)} />
+{/if}
+
+<style>
+  .reader-top-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    justify-content: flex-end;
+  }
+
+  .reader-chapter-select {
+    max-width: 140px;
+    padding: 0.35rem 0.5rem;
+    font-size: 0.72rem;
+    border: 1px solid var(--ui-border);
+    border-radius: 6px;
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+  }
+
+  .reader-help-btn {
+    min-width: 2rem;
+    padding: 0.35rem 0.55rem;
+    font-family: 'Fira Code', monospace;
+    font-weight: 700;
+  }
+</style>

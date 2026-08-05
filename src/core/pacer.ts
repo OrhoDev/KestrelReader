@@ -1,4 +1,6 @@
 import { calculateOrp, type OrpAnalysis } from './orp';
+import type { RsvpConfig } from './rsvpConfig';
+import { DEFAULT_RSVP_CONFIG } from './rsvpConfig';
 
 export interface Token {
   text: string;
@@ -24,16 +26,24 @@ export function isPhraseConnector(word: string): boolean {
   return stripped.length >= 1 && stripped.length <= 3 && PHRASE_CONNECTORS.has(stripped);
 }
 
-export function calculateChunkedDelay(words: string[], baseWpm: number): number {
-  const total = words.reduce((sum, word) => sum + calculateTokenDelay(word, baseWpm), 0);
+export function calculateChunkedDelay(
+  words: string[],
+  baseWpm: number,
+  timing: RsvpConfig = DEFAULT_RSVP_CONFIG,
+): number {
+  const total = words.reduce((sum, word) => sum + calculateTokenDelay(word, baseWpm, timing), 0);
   return Math.round(total * CONSOLIDATION_DISCOUNT);
 }
 
-export function resolvePlaybackDelay(token: PlaybackToken, baseWpm: number): number {
+export function resolvePlaybackDelay(
+  token: PlaybackToken,
+  baseWpm: number,
+  timing: RsvpConfig = DEFAULT_RSVP_CONFIG,
+): number {
   if (token.chunkWords && token.chunkWords.length > 1) {
-    return calculateChunkedDelay(token.chunkWords, baseWpm);
+    return calculateChunkedDelay(token.chunkWords, baseWpm, timing);
   }
-  return calculateTokenDelay(token.text, baseWpm);
+  return calculateTokenDelay(token.text, baseWpm, timing);
 }
 
 export function buildPlaybackTokens(tokens: Token[], phraseChunking: boolean): PlaybackToken[] {
@@ -99,21 +109,25 @@ export function rawOffsetFromPlayback(token: PlaybackToken): number {
   return token.sourceStart;
 }
 
-export function calculateTokenDelay(text: string, baseWpm: number): number {
+export function calculateTokenDelay(
+  text: string,
+  baseWpm: number,
+  timing: RsvpConfig = DEFAULT_RSVP_CONFIG,
+): number {
   const baseDelay = 60000 / baseWpm;
   let multiplier = 1.0;
 
   if (text.length > 10) {
-    multiplier += 0.20;
+    multiplier += timing.longWordPause;
   } else if (text.length > 7) {
-    multiplier += 0.10;
+    multiplier += timing.longWordPause * 0.5;
   }
 
   const lastChar = text.slice(-1);
   if (['.', '?', '!'].includes(lastChar)) {
-    multiplier += 1.20;
+    multiplier += timing.sentencePause;
   } else if ([',', ';', ':'].includes(lastChar)) {
-    multiplier += 0.50;
+    multiplier += timing.commaPause;
   } else if (text.includes('—') || text.includes('-')) {
     multiplier += 0.30;
   }

@@ -2,14 +2,20 @@ import Dexie, { type Table } from 'dexie';
 import type { Token } from './pacer';
 import { reportRuntimeError } from './diagnostics';
 
+export interface BookChapter {
+  title: string;
+  startOffset: number;
+}
+
 export interface BookRecord {
   id: string;
   title: string;
   author: string;
-  format: 'epub' | 'pdf' | 'text';
+  format: 'epub' | 'pdf' | 'text' | 'scan' | 'paste' | 'url';
   rawContent: string | Blob | null;
   localPath?: string;
   tokens: Token[];
+  chapters?: BookChapter[];
   currentOffset: number;
   totalWords: number;
   lastReadAt: number;

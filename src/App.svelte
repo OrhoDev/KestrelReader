@@ -1,7 +1,5 @@
 <script lang="ts">
-  import ReaderCanvas from './components/ReaderCanvas.svelte';
   import Library from './components/Library.svelte';
-  import Settings from './components/Settings.svelte';
   import Layout from './components/Layout.svelte';
   import { db } from './core/db';
   import { parsePlainText } from './core/parser';
@@ -115,19 +113,23 @@
       onSettings={() => currentView = 'settings'}
     />
   {:else if currentView === 'reader' && activeBookId}
-    <ReaderCanvas
-      bookId={activeBookId}
-      {focusConfig}
-      onBack={() => currentView = 'library'}
-    />
+    {#await import('./components/ReaderCanvas.svelte') then { default: ReaderCanvas }}
+      <ReaderCanvas
+        bookId={activeBookId}
+        {focusConfig}
+        onBack={() => currentView = 'library'}
+      />
+    {/await}
   {:else if currentView === 'settings'}
-    <Settings
-      onBack={() => currentView = 'library'}
-      activeTheme={activeTheme}
-      onThemeChange={setTheme}
-      {focusConfig}
-      onFocusConfigChange={setFocusConfig}
-    />
+    {#await import('./components/Settings.svelte') then { default: Settings }}
+      <Settings
+        onBack={() => currentView = 'library'}
+        activeTheme={activeTheme}
+        onThemeChange={setTheme}
+        {focusConfig}
+        onFocusConfigChange={setFocusConfig}
+      />
+    {/await}
   {/if}
 </div>
 </Layout>

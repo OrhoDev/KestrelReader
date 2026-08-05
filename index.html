@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>KestrelReader — Local-first RSVP speed reader</title>
+    <title>KestrelReader | RSVP speed reader for EPUB, PDF, and scans</title>
     <meta
       name="description"
-      content="KestrelReader is a privacy-respecting RSVP speed reader for EPUB, PDF, and text. Read faster on your device with no accounts or cloud uploads."
+      content="Free RSVP speed reader for EPUB, PDF, and plain text. Scan pages with your camera. No account. No cloud. Runs on your device."
     />
-    <meta name="robots" content="index, follow" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta name="author" content="KestrelReader" />
     <meta name="application-name" content="KestrelReader" />
     <meta name="theme-color" content="#1E1916" />
@@ -22,24 +22,26 @@
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="KestrelReader" />
-    <meta property="og:title" content="KestrelReader — Local-first RSVP speed reader" />
+    <meta property="og:title" content="KestrelReader | RSVP speed reader" />
     <meta
       property="og:description"
-      content="Privacy-respecting RSVP speed reader for EPUB, PDF, and text. All processing stays on your device."
+      content="Read EPUB, PDF, and scanned text with RSVP. Free. No account. Install as a PWA on your phone."
     />
     <meta property="og:url" content="https://kestrel-reader.vercel.app/" />
     <meta property="og:image" content="https://kestrel-reader.vercel.app/icons/icon512.png" />
     <meta property="og:image:width" content="512" />
     <meta property="og:image:height" content="512" />
+    <meta property="og:image:alt" content="KestrelReader logo" />
     <meta property="og:locale" content="en_US" />
 
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="KestrelReader — Local-first RSVP speed reader" />
+    <meta name="twitter:title" content="KestrelReader | RSVP speed reader" />
     <meta
       name="twitter:description"
-      content="Privacy-respecting RSVP speed reader for EPUB, PDF, and text. All processing stays on your device."
+      content="RSVP reader for EPUB, PDF, and camera scans. No account. No cloud. Install as a phone app."
     />
     <meta name="twitter:image" content="https://kestrel-reader.vercel.app/icons/icon512.png" />
+    <meta name="twitter:image:alt" content="KestrelReader logo" />
 
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Kestrel" />
@@ -48,18 +50,58 @@
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "WebApplication",
+        "@type": "SoftwareApplication",
         "name": "KestrelReader",
+        "alternateName": ["Kestrel Reader App", "Kestrel RSVP Reader"],
         "url": "https://kestrel-reader.vercel.app/",
-        "description": "Local-first RSVP speed reader for EPUB, PDF, and plain text.",
-        "applicationCategory": "UtilitiesApplication",
-        "operatingSystem": "Web",
-        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+        "description": "Free RSVP speed reader for EPUB, PDF, plain text, and camera scans. No account. No cloud uploads.",
+        "applicationCategory": "EducationalApplication",
+        "applicationSubCategory": "Speed Reading",
+        "operatingSystem": "Web, iOS, Android, Windows, macOS",
+        "browserRequirements": "Requires JavaScript. Requires HTML5.",
+        "featureList": [
+          "RSVP reading with adjustable WPM",
+          "EPUB and PDF import",
+          "Camera scan with on-device OCR",
+          "ORP word highlighting",
+          "PWA install",
+          "Browser extension for web articles",
+          "Offline library",
+          "No account"
+        ],
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD",
+          "availability": "https://schema.org/InStock"
+        },
+        "image": "https://kestrel-reader.vercel.app/icons/icon512.png",
+        "screenshot": "https://kestrel-reader.vercel.app/icons/icon512.png",
+        "author": {
+          "@type": "Organization",
+          "name": "KestrelReader"
+        }
       }
     </script>
   </head>
   <body>
     <div id="app"></div>
+    <noscript>
+      <main style="max-width:42rem;margin:2rem auto;padding:1rem;font-family:system-ui,sans-serif;line-height:1.6;color:#E6DFD9;background:#1E1916;">
+        <h1>KestrelReader</h1>
+        <p>
+          RSVP speed reader for EPUB, PDF, and plain text. Scan pages with your camera or import files.
+          No account required. JavaScript is required to run the app.
+        </p>
+        <h2>Features</h2>
+        <ul>
+          <li>RSVP reading with adjustable WPM</li>
+          <li>EPUB, PDF, and .txt import</li>
+          <li>Camera scan to RSVP playback</li>
+          <li>Install as a phone or desktop app (PWA)</li>
+        </ul>
+      </main>
+    </noscript>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -10,7 +10,10 @@
     "build:ext": "vite build -c vite.extension.config.ts",
     "build:extension": "vite build -c vite.extension.config.ts",
     "preview": "vite preview",
-    "check": "svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "generate:icons": "node scripts/generate-icons.mjs",
+    "fetch:ocr": "node scripts/fetch-ocr-data.mjs",
+    "prebuild": "npm run fetch:ocr"
   },
   "dependencies": {
     "@fontsource/atkinson-hyperlegible": "^5.2.8",
@@ -23,13 +26,15 @@
     "@tauri-apps/plugin-fs": "^2.5.1",
     "dexie": "^4.0.8",
     "epubjs": "^0.3.93",
-    "pdfjs-dist": "^5.7.284"
+    "pdfjs-dist": "^5.7.284",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^4.0.0",
     "@tailwindcss/vite": "^4.0.0",
     "@types/chrome": "^0.0.268",
     "@types/node": "^25.9.1",
+    "sharp": "^0.34.5",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
     "tailwindcss": "^4.0.0",
