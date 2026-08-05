@@ -16,6 +16,8 @@
   let progressStatus = $state('Preparing…');
   let errorMessage = $state<string | null>(null);
   let useCamera = $state(true);
+  let cameraReady = $state(false);
+  let cameraStarting = $state(false);
   let videoEl = $state<HTMLVideoElement | null>(null);
   let stream = $state<MediaStream | null>(null);
   let sweeping = $state(false);
@@ -30,39 +32,98 @@
     if (videoEl) {
       videoEl.srcObject = null;
     }
+    cameraReady = false;
   }
 
-  async function startCamera() {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      useCamera = false;
-      return;
-    }
-
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
+  async function requestCameraStream(): Promise<MediaStream> {
+    const attempts: MediaStreamConstraints[] = [
+      {
         video: {
           facingMode: { ideal: 'environment' },
           width: { ideal: 1920 },
           height: { ideal: 1080 },
         },
         audio: false,
-      });
-      stream = mediaStream;
-      if (videoEl) {
-        videoEl.srcObject = mediaStream;
-        await videoEl.play();
+      },
+      { video: { facingMode: 'environment' }, audio: false },
+      { video: true, audio: false },
+    ];
+
+    for (const constraints of attempts) {
+      try {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      } catch {
+        // try simpler constraints
       }
-      useCamera = true;
-    } catch {
+    }
+
+    throw new Error('Could not access camera');
+  }
+
+  async function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
+    if (video.videoWidth > 0 && video.videoHeight > 0) return;
+
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Camera preview timed out')), 12000);
+      const onReady = () => {
+        clearTimeout(timeout);
+        video.removeEventListener('loadedmetadata', onReady);
+        resolve();
+      };
+      video.addEventListener('loadedmetadata', onReady);
+    });
+  }
+
+  async function startCamera(video: HTMLVideoElement) {
+    if (!navigator.mediaDevices?.getUserMedia) {
       useCamera = false;
+      errorMessage = 'Camera not supported in this browser.';
+      return;
+    }
+
+    cameraStarting = true;
+    cameraReady = false;
+    errorMessage = null;
+
+    try {
+      stopStream();
+      const mediaStream = await requestCameraStream();
+      stream = mediaStream;
+
+      video.setAttribute('playsinline', 'true');
+      video.setAttribute('webkit-playsinline', 'true');
+      video.muted = true;
+      video.autoplay = true;
+      video.srcObject = mediaStream;
+
+      await video.play();
+      await waitForVideoFrame(video);
+
+      useCamera = true;
+      cameraReady = true;
+    } catch (err) {
+      useCamera = false;
+      cameraReady = false;
+      stopStream();
+
+      const name = err instanceof DOMException ? err.name : '';
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        errorMessage = 'Camera permission denied. Allow access in browser settings or pick a photo.';
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+        errorMessage = 'No camera found on this device.';
+      } else {
+        errorMessage = 'Could not start camera. Choose a photo instead.';
+      }
+    } finally {
+      cameraStarting = false;
     }
   }
 
   $effect(() => {
-    if (phase !== 'camera') return;
+    if (phase !== 'camera' || !videoEl) return;
 
     let cancelled = false;
-    startCamera().then(() => {
+    startCamera(videoEl).then(() => {
       if (cancelled) stopStream();
     });
 
@@ -72,14 +133,8 @@
     };
   });
 
-  $effect(() => {
-    if (!videoEl || !stream) return;
-    videoEl.srcObject = stream;
-    videoEl.play().catch(() => {});
-  });
-
   function captureFrameFromVideo(): HTMLCanvasElement | null {
-    if (!videoEl || videoEl.videoWidth === 0) return null;
+    if (!videoEl || !cameraReady || videoEl.videoWidth === 0) return null;
 
     const canvas = document.createElement('canvas');
     const vw = videoEl.videoWidth;
@@ -109,6 +164,7 @@
     progress = 0;
     progressStatus = 'Preparing…';
     errorMessage = null;
+    stopStream();
 
     try {
       const text = await recognizeTextFromCanvas(canvas, {
@@ -150,7 +206,7 @@
     const canvas = captureFrameFromVideo();
     if (!canvas) return;
     try {
-      const fragment = await recognizeTextFromCanvas(canvas, { lineMode: false });
+      const fragment = await recognizeTextFromCanvas(canvas, { lineMode: true });
       sweepText = stitchTexts(sweepText, fragment);
     } catch {
       // ignore intermittent OCR failures during sweep
@@ -158,7 +214,7 @@
   }
 
   function startSweep() {
-    if (mode !== 'line') return;
+    if (mode !== 'line' || !cameraReady) return;
     sweeping = true;
     sweepText = '';
     sweepTimer = setInterval(() => void sweepOcrFrame(), 550);
@@ -172,6 +228,7 @@
     if (!sweepText.trim()) return;
     phase = 'processing';
     progressStatus = 'Finishing sweep…';
+    stopStream();
     try {
       const cleaned = sweepText.replace(/\s+/g, ' ').trim();
       if (cleaned) onComplete(cleaned);
@@ -189,7 +246,9 @@
   async function handleCapture() {
     const canvas = captureFrameFromVideo();
     if (!canvas) {
-      errorMessage = 'Camera not ready yet. Wait a moment and try again.';
+      errorMessage = cameraStarting
+        ? 'Camera is still starting. Wait a moment.'
+        : 'Camera not ready. Wait a moment or pick a photo.';
       return;
     }
     await processCanvas(canvas, mode === 'line');
@@ -202,11 +261,13 @@
     if (!file) return;
 
     try {
+      stopStream();
       const canvas = await loadImageToCanvas(file);
       await processCanvas(canvas);
     } catch (err) {
       await reportRuntimeError(err, 'ScanCapture.handleFileInput');
       errorMessage = 'Could not load that image.';
+      phase = 'camera';
     }
   }
 
@@ -260,6 +321,12 @@
         autoplay
       ></video>
 
+      {#if cameraStarting || !cameraReady}
+        <div class="scan-camera-loading" aria-live="polite">
+          <p>{cameraStarting ? 'Starting camera…' : 'Waiting for camera…'}</p>
+        </div>
+      {/if}
+
       {#if mode === 'line'}
         <div class="scan-line-guide" aria-hidden="true">
           <div class="scan-line-mask scan-line-mask-top"></div>
@@ -279,7 +346,7 @@
           <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
           <circle cx="12" cy="13" r="4"/>
         </svg>
-        <p>Camera unavailable. Choose a photo instead.</p>
+        <p>{errorMessage ?? 'Camera unavailable. Choose a photo instead.'}</p>
         <label class="btn-primary scan-pick-btn">
           Choose photo
           <input type="file" accept="image/*" capture="environment" onchange={handleFileInput} hidden />
@@ -287,7 +354,7 @@
       </div>
     {/if}
 
-    {#if errorMessage}
+    {#if errorMessage && useCamera}
       <p class="scan-error">{errorMessage}</p>
     {/if}
   </div>
@@ -301,14 +368,24 @@
           onpointerdown={(e) => { e.preventDefault(); startSweep(); }}
           onpointerup={() => void endSweep()}
           onpointerleave={() => void endSweep()}
-          disabled={sweeping}
+          disabled={sweeping || !cameraReady}
         >
           {sweeping ? 'Sweeping…' : 'Hold & sweep along line'}
         </button>
       {/if}
-      <button class="scan-capture-btn" onclick={handleCapture} aria-label="Capture and read text">
+      <button
+        class="scan-capture-btn"
+        onclick={handleCapture}
+        aria-label="Capture and read text"
+        disabled={!cameraReady || cameraStarting}
+      >
         <span class="scan-capture-inner"></span>
       </button>
+      <label class="btn-flat scan-gallery-btn">
+        Gallery
+        <input type="file" accept="image/*" onchange={handleFileInput} hidden />
+      </label>
+    {:else}
       <label class="btn-flat scan-gallery-btn">
         Gallery
         <input type="file" accept="image/*" onchange={handleFileInput} hidden />
@@ -375,6 +452,27 @@
     height: 100%;
     object-fit: cover;
     display: block;
+    background: #111;
+  }
+
+  .scan-camera-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .scan-camera-loading p {
+    margin: 0;
+    padding: 0.5rem 0.85rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.65);
+    font-size: 0.82rem;
+    color: #fff;
   }
 
   .scan-line-guide {
@@ -383,6 +481,7 @@
     display: flex;
     flex-direction: column;
     pointer-events: none;
+    z-index: 2;
   }
 
   .scan-line-mask {
@@ -421,6 +520,7 @@
     font-size: 0.78rem;
     color: #fff;
     pointer-events: none;
+    z-index: 2;
   }
 
   .scan-fallback {
@@ -481,10 +581,15 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: transform 0.12s ease;
+    transition: transform 0.12s ease, opacity 0.12s ease;
   }
 
-  .scan-capture-btn:active {
+  .scan-capture-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .scan-capture-btn:active:not(:disabled) {
     transform: scale(0.94);
   }
 

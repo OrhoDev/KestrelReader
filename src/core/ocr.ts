@@ -3,13 +3,16 @@ import coreURL from 'tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm.js?u
 
 type OcrProgress = { progress: number; status: string };
 
+type OcrMode = 'page' | 'line';
+
 let workerPromise: Promise<import('tesseract.js').Worker> | null = null;
 let progressCallback: ((p: OcrProgress) => void) | undefined;
+let lastOcrMode: OcrMode | null = null;
 
 async function getWorker() {
   if (!workerPromise) {
     workerPromise = (async () => {
-      const { createWorker } = await import('tesseract.js');
+      const { createWorker, PSM } = await import('tesseract.js');
       const worker = await createWorker('eng', 1, {
         workerPath: workerURL,
         corePath: coreURL,
@@ -28,14 +31,69 @@ async function getWorker() {
           }
         },
       });
+      await worker.setParameters({
+        preserve_interword_spaces: '1',
+        user_defined_dpi: '300',
+        tessedit_pageseg_mode: PSM.AUTO,
+      });
       return worker;
     })();
   }
   return workerPromise;
 }
 
-function preprocessCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
-  const maxDim = 1600;
+function computeOtsuThreshold(gray: Uint8Array): number {
+  const hist = new Array<number>(256).fill(0);
+  for (const value of gray) hist[value]++;
+
+  const total = gray.length;
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * hist[i];
+
+  let sumB = 0;
+  let wB = 0;
+  let varMax = 0;
+  let threshold = 128;
+
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (wB === 0) continue;
+
+    const wF = total - wB;
+    if (wF === 0) break;
+
+    sumB += t * hist[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const varBetween = wB * wF * (mB - mF) ** 2;
+
+    if (varBetween > varMax) {
+      varMax = varBetween;
+      threshold = t;
+    }
+  }
+
+  return threshold;
+}
+
+function upscaleCanvas(source: HTMLCanvasElement, minWidth: number, minHeight: number): HTMLCanvasElement {
+  const scale = Math.max(minWidth / source.width, minHeight / source.height, 1);
+  if (scale <= 1.05) return source;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(source.width * scale);
+  canvas.height = Math.round(source.height * scale);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return source;
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+function preprocessCanvas(source: HTMLCanvasElement, mode: OcrMode): HTMLCanvasElement {
+  const maxDim = mode === 'line' ? 2400 : 2000;
   let width = source.width;
   let height = source.height;
 
@@ -55,16 +113,28 @@ function preprocessCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
 
   const imageData = ctx.getImageData(0, 0, width, height);
   const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    const contrast = ((gray - 128) * 1.4) + 128;
-    const value = Math.max(0, Math.min(255, contrast));
+  const gray = new Uint8Array(width * height);
+
+  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+    gray[p] = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+  }
+
+  const threshold = computeOtsuThreshold(gray);
+
+  for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+    const boosted = Math.max(0, Math.min(255, ((gray[p] - 128) * 1.25) + 128));
+    const value = boosted > threshold ? 255 : 0;
     data[i] = value;
     data[i + 1] = value;
     data[i + 2] = value;
   }
+
   ctx.putImageData(imageData, 0, 0);
-  return canvas;
+
+  if (mode === 'line') {
+    return upscaleCanvas(canvas, 1600, 160);
+  }
+  return upscaleCanvas(canvas, 1800, 1200);
 }
 
 export function cropToLineBand(source: HTMLCanvasElement, bandRatio = 0.18): HTMLCanvasElement {
@@ -103,19 +173,39 @@ export async function loadImageToCanvas(file: Blob): Promise<HTMLCanvasElement> 
   }
 }
 
+function cleanupOcrText(text: string): string {
+  return text
+    .replace(/\u00AD/g, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export async function recognizeTextFromCanvas(
   source: HTMLCanvasElement,
   options?: { lineMode?: boolean; onProgress?: (p: OcrProgress) => void },
 ): Promise<string> {
+  const mode: OcrMode = options?.lineMode ? 'line' : 'page';
   let canvas = source;
   if (options?.lineMode) {
     canvas = cropToLineBand(canvas);
   }
-  canvas = preprocessCanvas(canvas);
+  canvas = preprocessCanvas(canvas, mode);
 
   progressCallback = options?.onProgress;
+  const { PSM } = await import('tesseract.js');
   const worker = await getWorker();
-  const { data } = await worker.recognize(canvas);
+
+  if (lastOcrMode !== mode) {
+    await worker.setParameters({
+      tessedit_pageseg_mode: mode === 'line' ? PSM.SINGLE_LINE : PSM.AUTO,
+    });
+    lastOcrMode = mode;
+  }
+
+  const { data } = await worker.recognize(canvas, {
+    rotateAuto: mode === 'page',
+  });
   progressCallback = undefined;
-  return data.text;
+  return cleanupOcrText(data.text);
 }

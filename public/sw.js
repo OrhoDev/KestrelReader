@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kestrel-reader';
+const CACHE_NAME = 'kestrel-reader-v2';
 const PRODUCTION_HOST = 'kestrel-reader.vercel.app';
 
 const SHELL_URLS = [
@@ -6,6 +6,7 @@ const SHELL_URLS = [
   '/index.html',
   '/manifest.json',
   '/favicon.png',
+  '/favicon.ico',
   '/kestrel-black.png',
   '/kestrel-white.png',
   '/icons/icon192.png',
