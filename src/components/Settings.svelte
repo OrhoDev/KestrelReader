@@ -18,6 +18,8 @@
   } from '../core/statistics';
   import { exportLibraryBackup, importLibraryBackup } from '../core/libraryBackup';
   import { reportRuntimeError } from '../core/diagnostics';
+  import type { BenchmarkResult } from '../core/benchmark';
+  import BenchmarkModal from './BenchmarkModal.svelte';
 
   let {
     onBack,
@@ -38,12 +40,17 @@
   let rsvpConfig = $state<RsvpConfig>({ ...DEFAULT_RSVP_CONFIG });
   let stats = $state<ReadingStatsSummary | null>(null);
   let backupMessage = $state<string | null>(null);
+  let showBenchmark = $state(false);
+  let benchmarkLast = $state<BenchmarkResult | null>(null);
 
   $effect(() => {
     db.settings.get('baseWpm').then((s) => { if (s) baseWpm = s.value; });
     db.settings.get('fontSize').then((s) => { if (s) fontSize = s.value; });
     loadRsvpConfig().then((c) => { rsvpConfig = c; });
     getReadingStatsSummary().then((s) => { stats = s; });
+    db.settings.get('benchmarkLast').then((s) => {
+      if (s?.value && typeof s.value === 'object') benchmarkLast = s.value as BenchmarkResult;
+    });
   });
 
   function saveWpm() {
@@ -204,6 +211,18 @@
           </span>
         </label>
 
+        <label class="focus-toggle">
+          <input
+            type="checkbox"
+            checked={focusConfig.ttsEnabled}
+            onchange={(e) => updateFocusConfig({ ttsEnabled: e.currentTarget.checked })}
+          />
+          <span>
+            <strong>Read-along voice</strong>
+            <small>Speak each word while RSVP plays (browser TTS).</small>
+          </span>
+        </label>
+
       </div>
 
       <div style="margin-top:1.25rem;">
@@ -233,6 +252,20 @@
         </div>
       </div>
     {/if}
+
+    <div class="card" style="padding:1.5rem;margin-bottom:1.25rem;">
+      <h2 style="margin:0 0 0.75rem 0;font-size:1rem;font-weight:600;color:var(--text-primary);">Benchmark</h2>
+      <p style="margin:0 0 1rem;font-size:0.82rem;line-height:1.55;color:var(--text-secondary);">
+        Read a short passage, then answer comprehension questions. You get WPM and a score.
+      </p>
+      {#if benchmarkLast}
+        <p style="margin:0 0 1rem;font-size:0.82rem;color:var(--text-secondary);">
+          Last run: <strong style="color:var(--highlight-orp);">{benchmarkLast.wpm} WPM</strong>,
+          {benchmarkLast.correctCount}/{benchmarkLast.totalQuestions} correct.
+        </p>
+      {/if}
+      <button type="button" class="btn-primary" onclick={() => (showBenchmark = true)}>Run benchmark</button>
+    </div>
 
     <div class="card" style="padding:1.5rem;margin-bottom:1.25rem;">
       <h2 style="margin:0 0 1rem 0;font-size:1rem;font-weight:600;color:var(--text-primary);">RSVP timing</h2>
@@ -331,6 +364,17 @@
 
   </div>
 </div>
+
+{#if showBenchmark}
+  <BenchmarkModal
+    onClose={() => {
+      showBenchmark = false;
+      db.settings.get('benchmarkLast').then((s) => {
+        if (s?.value && typeof s.value === 'object') benchmarkLast = s.value as BenchmarkResult;
+      });
+    }}
+  />
+{/if}
 
 <style>
   .settings-stats-grid {

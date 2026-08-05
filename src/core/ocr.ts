@@ -2,8 +2,12 @@ import workerURL from 'tesseract.js/dist/worker.min.js?url';
 import coreURL from 'tesseract.js-core/tesseract-core-relaxedsimd-lstm.wasm.js?url';
 
 type OcrProgress = { progress: number; status: string };
-
 type OcrMode = 'page' | 'line';
+
+export interface OcrScoredResult {
+  text: string;
+  score: number;
+}
 
 let workerPromise: Promise<import('tesseract.js').Worker> | null = null;
 let progressCallback: ((p: OcrProgress) => void) | undefined;
@@ -181,10 +185,21 @@ function cleanupOcrText(text: string): string {
     .trim();
 }
 
-export async function recognizeTextFromCanvas(
+function htmlToPlain(html: string): string {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return (doc.body?.textContent ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function scoreOcrText(text: string, confidence: number): number {
+  const words = text.split(/\s+/).filter(Boolean).length;
+  if (words === 0) return 0;
+  return words * (confidence / 100);
+}
+
+async function recognizeScoredFromCanvas(
   source: HTMLCanvasElement,
   options?: { lineMode?: boolean; onProgress?: (p: OcrProgress) => void },
-): Promise<string> {
+): Promise<OcrScoredResult> {
   const mode: OcrMode = options?.lineMode ? 'line' : 'page';
   let canvas = source;
   if (options?.lineMode) {
@@ -207,5 +222,52 @@ export async function recognizeTextFromCanvas(
     rotateAuto: mode === 'page',
   });
   progressCallback = undefined;
-  return cleanupOcrText(data.text);
+
+  const wordList = (data as { words?: Array<{ confidence: number }> }).words ?? [];
+  const avgConf =
+    wordList.length > 0
+      ? wordList.reduce((sum, word) => sum + word.confidence, 0) / wordList.length
+      : (data.confidence ?? 50);
+
+  const text = cleanupOcrText(data.text);
+  return { text, score: scoreOcrText(text, avgConf) };
+}
+
+export async function recognizeTextFromCanvas(
+  source: HTMLCanvasElement,
+  options?: { lineMode?: boolean; onProgress?: (p: OcrProgress) => void },
+): Promise<string> {
+  const result = await recognizeScoredFromCanvas(source, options);
+  return result.text;
+}
+
+export async function recognizeBestFromCanvases(
+  canvases: HTMLCanvasElement[],
+  options?: { lineMode?: boolean; onProgress?: (p: OcrProgress) => void },
+): Promise<string> {
+  if (canvases.length === 0) return '';
+  if (canvases.length === 1) {
+    return recognizeTextFromCanvas(canvases[0], options);
+  }
+
+  let best: OcrScoredResult = { text: '', score: 0 };
+  const total = canvases.length;
+
+  for (let i = 0; i < total; i++) {
+    options?.onProgress?.({
+      progress: i / total,
+      status: `Frame ${i + 1} of ${total}…`,
+    });
+
+    const result = await recognizeScoredFromCanvas(canvases[i], {
+      lineMode: options?.lineMode,
+    });
+
+    if (result.score > best.score) {
+      best = result;
+    }
+  }
+
+  options?.onProgress?.({ progress: 1, status: 'Reading text…' });
+  return best.text;
 }

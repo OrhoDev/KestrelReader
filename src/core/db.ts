@@ -18,7 +18,7 @@ export interface BookRecord {
   id: string;
   title: string;
   author: string;
-  format: 'epub' | 'pdf' | 'text' | 'scan' | 'paste' | 'url';
+  format: 'epub' | 'pdf' | 'text' | 'scan' | 'paste' | 'url' | 'docx' | 'mobi';
   rawContent: string | Blob | null;
   localPath?: string;
   tokens: Token[];

@@ -5,7 +5,12 @@
   import { createBookFromText, createBookFromTokens, findContinueBook } from '../core/bookFactory';
   import TextImportModal from './TextImportModal.svelte';
 
-  let { onPlay, onSettings } = $props<{ onPlay: (id: string) => void; onSettings: () => void }>();
+  let { onPlay, onSettings, extensionSavedBookId = null, extensionSavedTitle = null } = $props<{
+    onPlay: (id: string) => void;
+    onSettings: () => void;
+    extensionSavedBookId?: string | null;
+    extensionSavedTitle?: string | null;
+  }>();
 
   let books = $state<BookRecord[]>([]);
   let isProcessing = $state(false);
@@ -123,6 +128,26 @@
           currentOffset: 0,
           totalWords: tokens.length,
           lastReadAt: Date.now(),
+        });
+      } else if (fileName.endsWith('.docx')) {
+        const { parseDocx } = await import('../core/parser-docx');
+        const parsed = await parseDocx(file);
+        await createBookFromText(parsed.text, {
+          title: parsed.title,
+          author: parsed.author,
+          format: 'docx',
+          rawContent: file,
+          wpm,
+        });
+      } else if (fileName.endsWith('.mobi') || fileName.endsWith('.azw') || fileName.endsWith('.azw3')) {
+        const { parseMobi } = await import('../core/parser-mobi');
+        const parsed = await parseMobi(file);
+        await createBookFromText(parsed.text, {
+          title: parsed.title,
+          author: parsed.author,
+          format: 'mobi',
+          rawContent: file,
+          wpm,
         });
       } else {
         const text = await file.text();
@@ -270,6 +295,13 @@
     </div>
   {/if}
 
+  {#if isExtension && extensionSavedBookId}
+    <div class="page-content library-extension-banner card">
+      <p>Article saved: <strong>{extensionSavedTitle ?? 'Web article'}</strong></p>
+      <button type="button" class="btn-primary" onclick={() => onPlay(extensionSavedBookId!)}>Read now</button>
+    </div>
+  {/if}
+
   {#if errorMessage}
     <div class="library-error-banner page-content">
       <p>{errorMessage}</p>
@@ -373,9 +405,9 @@
       {:else}
         <svg style="width:2rem;height:2rem;color:var(--text-secondary);margin-bottom:0.75rem;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         <span style="font-size:0.85rem;font-weight:600;color:var(--text-primary);">Import File</span>
-        <span style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.4rem;line-height:1.5;">.txt · .epub · .pdf</span>
+        <span style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.4rem;line-height:1.5;">.txt · .epub · .pdf · .docx · .mobi</span>
       {/if}
-      <input type="file" accept=".txt,.epub,.pdf" style="display:none;" onchange={handleFileUpload} disabled={isProcessing} />
+      <input type="file" accept=".txt,.epub,.pdf,.docx,.mobi,.azw,.azw3" style="display:none;" onchange={handleFileUpload} disabled={isProcessing} />
     </label>
 
     {#if books.length === 0 && !isProcessing}
@@ -469,6 +501,21 @@
     height: 2rem;
     color: var(--highlight-orp);
     margin-bottom: 0.75rem;
+  }
+
+  .library-extension-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+    padding: 1rem 1.25rem;
+  }
+
+  .library-extension-banner p {
+    margin: 0;
+    font-size: 0.88rem;
+    color: var(--text-secondary);
   }
 
   .library-error-banner {

@@ -2,13 +2,15 @@
   import Library from './components/Library.svelte';
   import Layout from './components/Layout.svelte';
   import { db } from './core/db';
-  import { parsePlainText } from './core/parser';
   import { DEFAULT_FOCUS_CONFIG, loadFocusConfig, type FocusConfig } from './core/focusConfig';
+  import { createBookFromText } from './core/bookFactory';
   import { reportRuntimeError, type RuntimeErrorDetail } from './core/diagnostics';
 
   let currentView = $state<'library' | 'reader' | 'settings'>('library');
   let activeBookId = $state<string | null>(null);
   let isExtracting = $state(false);
+  let extensionSavedBookId = $state<string | null>(null);
+  let extensionSavedTitle = $state<string | null>(null);
   let activeTheme = $state<'falcon' | 'sand' | 'steppe'>('falcon');
   let focusConfig = $state<FocusConfig>({ ...DEFAULT_FOCUS_CONFIG });
   let runtimeError = $state<RuntimeErrorDetail | null>(null);
@@ -51,39 +53,34 @@
   }
 
   $effect(() => {
-    const isExtension = typeof chrome !== 'undefined' && chrome.runtime && typeof chrome.runtime.sendMessage === 'function' && window.location.protocol === 'chrome-extension:';
-    if (isExtension) {
-      if (activeBookId) return;
+    const isExtension =
+      typeof chrome !== 'undefined' &&
+      chrome.runtime &&
+      typeof chrome.runtime.sendMessage === 'function' &&
+      window.location.protocol === 'chrome-extension:';
 
-      isExtracting = true;
-      chrome.runtime.sendMessage({ type: 'EXTRACT_TEXT' }, async (response) => {
-        if (response && response.text && response.text.trim().length > 0) {
-          try {
-            const settings = await db.settings.get('baseWpm');
-            const wpm = settings ? settings.value : 300;
-            const tokens = parsePlainText(response.text, wpm);
+    if (!isExtension || extensionSavedBookId) return;
 
-            const newBook = {
-              id: crypto.randomUUID(),
-              title: 'Web Page Extract',
-              author: 'Active Tab',
-              format: 'text' as const,
-              rawContent: null,
-              tokens,
-              currentOffset: 0,
-              totalWords: tokens.length,
-              lastReadAt: Date.now()
-            };
-
-            await db.books.put(newBook);
-            openBook(newBook.id);
-          } catch (e) {
-            await reportRuntimeError(e, 'App.extensionExtract');
-          }
+    isExtracting = true;
+    chrome.runtime.sendMessage({ type: 'EXTRACT_TEXT' }, async (response) => {
+      try {
+        if (response?.text && response.text.trim().length > 40) {
+          const settings = await db.settings.get('baseWpm');
+          const wpm = settings ? settings.value : 300;
+          const book = await createBookFromText(response.text, {
+            title: response.title?.trim() || 'Web article',
+            author: response.author?.trim() || 'Web page',
+            format: 'url',
+            wpm,
+          });
+          extensionSavedBookId = book.id;
+          extensionSavedTitle = book.title;
         }
-        isExtracting = false;
-      });
-    }
+      } catch (e) {
+        await reportRuntimeError(e, 'App.extensionExtract');
+      }
+      isExtracting = false;
+    });
   });
 </script>
 
@@ -103,7 +100,7 @@
         <circle style="opacity:0.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
         <path style="opacity:0.75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
       </svg>
-      <p style="color:var(--text-secondary);font-weight:500;">Extracting page content...</p>
+      <p style="color:var(--text-secondary);font-weight:500;">Saving page to library…</p>
     </div>
   {/if}
 
@@ -111,6 +108,8 @@
     <Library
       onPlay={openBook}
       onSettings={() => currentView = 'settings'}
+      extensionSavedBookId={extensionSavedBookId}
+      extensionSavedTitle={extensionSavedTitle}
     />
   {:else if currentView === 'reader' && activeBookId}
     {#await import('./components/ReaderCanvas.svelte') then { default: ReaderCanvas }}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { recognizeTextFromCanvas, loadImageToCanvas } from '../core/ocr';
+  import { recognizeBestFromCanvases, loadImageToCanvas } from '../core/ocr';
   import { reportRuntimeError } from '../core/diagnostics';
 
   let { onComplete, onCancel } = $props<{
@@ -172,7 +172,7 @@
     return canvas;
   }
 
-  async function processCanvas(canvas: HTMLCanvasElement, alreadyLineCropped = false) {
+  async function processCanvases(canvases: HTMLCanvasElement[], alreadyLineCropped = false) {
     phase = 'processing';
     progress = 0;
     progressStatus = 'Preparing…';
@@ -180,7 +180,7 @@
     stopStream();
 
     try {
-      const text = await recognizeTextFromCanvas(canvas, {
+      const text = await recognizeBestFromCanvases(canvases, {
         lineMode: mode === 'line' && !alreadyLineCropped,
         onProgress: (p) => {
           progress = p.progress;
@@ -219,7 +219,7 @@
     const canvas = captureFrameFromVideo();
     if (!canvas) return;
     try {
-      const fragment = await recognizeTextFromCanvas(canvas, { lineMode: true });
+      const fragment = await recognizeBestFromCanvases([canvas], { lineMode: true });
       sweepText = stitchTexts(sweepText, fragment);
     } catch {
       // ignore intermittent OCR failures during sweep
@@ -257,14 +257,26 @@
   }
 
   async function handleCapture() {
-    const canvas = captureFrameFromVideo();
-    if (!canvas) {
+    if (!cameraReady) {
       errorMessage = cameraStarting
         ? 'Camera is still starting. Wait a moment.'
         : 'Camera not ready. Wait a moment or pick a photo.';
       return;
     }
-    await processCanvas(canvas, mode === 'line');
+
+    const frames: HTMLCanvasElement[] = [];
+    for (let i = 0; i < 3; i++) {
+      const canvas = captureFrameFromVideo();
+      if (canvas) frames.push(canvas);
+      if (i < 2) await new Promise((resolve) => setTimeout(resolve, 140));
+    }
+
+    if (frames.length === 0) {
+      errorMessage = 'Camera not ready yet. Wait a moment and try again.';
+      return;
+    }
+
+    await processCanvases(frames, mode === 'line');
   }
 
   async function handleFileInput(e: Event) {
@@ -276,7 +288,7 @@
     try {
       stopStream();
       const canvas = await loadImageToCanvas(file);
-      await processCanvas(canvas);
+      await processCanvases([canvas]);
     } catch (err) {
       await reportRuntimeError(err, 'ScanCapture.handleFileInput');
       errorMessage = 'Could not load that image.';

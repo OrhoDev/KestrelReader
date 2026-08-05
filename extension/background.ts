@@ -8,7 +8,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const activeTab = tabs[0];
     if (!activeTab?.id) {
-      sendResponse({ text: '', error: 'No active tab found' });
+      sendResponse({ text: '', title: '', author: '', error: 'No active tab found' });
       return;
     }
 
@@ -19,7 +19,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       () => {
         if (chrome.runtime.lastError) {
           console.error(chrome.runtime.lastError);
-          sendResponse({ text: '', error: chrome.runtime.lastError.message });
+          sendResponse({ text: '', title: '', author: '', error: chrome.runtime.lastError.message });
           return;
         }
 
@@ -27,23 +27,36 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
           {
             target: { tabId },
             func: () => {
-              const extractor = (window as Window & { __kestrelExtractArticle?: () => string })
-                .__kestrelExtractArticle;
-              return extractor?.() ?? document.body?.innerText ?? '';
+              const extractor = (window as Window & {
+                __kestrelExtractArticle?: () => {
+                  title: string;
+                  author: string;
+                  text: string;
+                };
+              }).__kestrelExtractArticle;
+              return extractor?.() ?? {
+                title: document.title || 'Web article',
+                author: location.hostname,
+                text: document.body?.innerText ?? '',
+              };
             },
           },
           (results) => {
             if (chrome.runtime.lastError) {
               console.error(chrome.runtime.lastError);
-              sendResponse({ text: '', error: chrome.runtime.lastError.message });
+              sendResponse({ text: '', title: '', author: '', error: chrome.runtime.lastError.message });
               return;
             }
 
-            const text = results?.[0]?.result;
-            if (typeof text === 'string' && text.trim().length > 0) {
-              sendResponse({ text });
+            const article = results?.[0]?.result;
+            if (article && typeof article.text === 'string' && article.text.trim().length > 0) {
+              sendResponse({
+                text: article.text,
+                title: article.title || activeTab.title || 'Web article',
+                author: article.author || activeTab.url ? new URL(activeTab.url!).hostname : 'Web page',
+              });
             } else {
-              sendResponse({ text: '' });
+              sendResponse({ text: '', title: '', author: '' });
             }
           },
         );

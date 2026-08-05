@@ -18,6 +18,7 @@
     type RsvpConfig,
   } from '../core/rsvpConfig';
   import { recordReading } from '../core/statistics';
+  import { speakWord, stopSpeech } from '../core/tts';
   import ContextPanel from './ContextPanel.svelte';
   import ShortcutsHelp from './ShortcutsHelp.svelte';
   import ReaderPins from './ReaderPins.svelte';
@@ -225,6 +226,13 @@
   }
 
   $effect(() => {
+    if (!isPlaying || !focusConfig.ttsEnabled || !currentToken) return;
+    const wpm = effectiveWpm(baseWpm, playbackOffset, rsvpConfig);
+    speakWord(currentToken.text, wpm);
+    return () => stopSpeech();
+  });
+
+  $effect(() => {
     if (isPlaying && currentToken) {
       const wpm = effectiveWpm(baseWpm, playbackOffset, rsvpConfig);
       const delay = resolvePlaybackDelay(currentToken, wpm, rsvpConfig);
@@ -269,6 +277,7 @@
   function togglePlay() {
     isPlaying = !isPlaying;
     if (!isPlaying) {
+      stopSpeech();
       void flushReadingStats();
       void saveLocalProgress(bookId, rawOffset);
     }

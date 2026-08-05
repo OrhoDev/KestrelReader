@@ -7,6 +7,7 @@ export interface FocusConfig {
   phraseChunking: boolean;
   visualTint: VisualTint;
   contextOnPause: boolean;
+  ttsEnabled: boolean;
 }
 
 export const DEFAULT_FOCUS_CONFIG: FocusConfig = {
@@ -14,6 +15,7 @@ export const DEFAULT_FOCUS_CONFIG: FocusConfig = {
   phraseChunking: false,
   visualTint: 'none',
   contextOnPause: true,
+  ttsEnabled: false,
 };
 
 const FOCUS_CONFIG_KEY = 'focusConfig';
@@ -30,6 +32,7 @@ export async function loadFocusConfig(): Promise<FocusConfig> {
     phraseChunking: stored.phraseChunking ?? DEFAULT_FOCUS_CONFIG.phraseChunking,
     visualTint: isVisualTint(stored.visualTint) ? stored.visualTint : DEFAULT_FOCUS_CONFIG.visualTint,
     contextOnPause: stored.contextOnPause ?? DEFAULT_FOCUS_CONFIG.contextOnPause,
+    ttsEnabled: stored.ttsEnabled ?? DEFAULT_FOCUS_CONFIG.ttsEnabled,
   };
 }
 
