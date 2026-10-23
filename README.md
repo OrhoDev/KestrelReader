@@ -6,17 +6,18 @@ Live app: [kestrel-reader.vercel.app](https://kestrel-reader.vercel.app/). Exten
 
 ## How it works
 
-No account. No cloud uploads. Parsing and storage stay on your device.
+No account and no cloud uploads. Parsing and storage stay on your device.
 
 ## Use it
 
-Open the web app in your browser. To install it, use your browser's install option for the PWA.
+Open the web app in your browser. 
+To install it, use your browser's install option.
 
-For the extension: download the zip from Releases, unzip it, open your browser's extensions page, enable developer mode, and load the unpacked folder.
+For the extension, download the zip from Releases, unzip it, open your browser's extensions page, enable developer mode, and load the unpacked folder.
 
 ## Development
 
-You need Node.js. Rust is only required for the Tauri desktop build.
+You need Node.js, Rust is only required for the desktop build.
 
 ```bash
 npm install
